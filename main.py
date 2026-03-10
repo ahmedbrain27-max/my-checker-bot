@@ -1,21 +1,22 @@
 import stripe
 import telebot
 import os
-from flask import Flask
+import http.server
+import socketserver
 from threading import Thread
 
-# 1. إعداد السيرفر الوهمي بشكل فوري
-app = Flask(__name__)
+# 1. إعداد سيرفر فوري جداً لإرضاء Render
+def run_health_server():
+    PORT = 10000
+    Handler = http.server.SimpleHTTPRequestHandler
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"Health check server started on port {PORT}")
+        httpd.serve_forever()
 
-@app.route('/')
-def health_check():
-    return "ALIVE", 200
+# تشغيل السيرفر في خيط مستقل فوراً عند بداية التشغيل
+Thread(target=run_health_server, daemon=True).start()
 
-def start_server():
-    # Render يراقب المنفذ 10000، سنقوم بتشغيله فوراً
-    app.run(host='0.0.0.0', port=10000)
-
-# 2. إعدادات البوت والمحرك
+# 2. بيانات المحرك والبوت
 stripe.api_key = "sk_live_awWzIlT3bp7cGsy4Ord9cRU0"
 bot = telebot.TeleBot("8551972896:AAFOysETMd4tuyuArnqPA8-uM2Iz6z4fWuw")
 ADMIN_ID = 5473153501
@@ -23,7 +24,7 @@ ADMIN_ID = 5473153501
 @bot.message_handler(commands=['start'])
 def start(message):
     if message.from_user.id == ADMIN_ID:
-        bot.reply_to(message, "✅ <b>البوت متصل الآن!</b>\nأرسل اللستة للفحص المباشر.", parse_mode="HTML")
+        bot.reply_to(message, "✅ <b>البوت أونلاين الآن!</b>\nأرسل اللستة وسأقوم بفحصها فوراً.", parse_mode="HTML")
 
 @bot.message_handler(func=lambda message: True)
 def handle_cards(message):
@@ -39,6 +40,7 @@ def handle_cards(message):
             if "|" not in card_clean: continue
             num, mm, yy, cvc = card_clean.split('|')
             
+            # عملية الفحص الحقيقي
             stripe.Charge.create(
                 amount=100, currency="usd",
                 source={"object": "card", "number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc}
@@ -53,19 +55,9 @@ def handle_cards(message):
             else: stats["dead"] += 1
         except Exception: stats["dead"] += 1
 
-    bot.edit_message_text(f"🏁 <b>اكتمل!</b>\n✅ HITS: {stats['hit']} | ⚡ LIVE: {stats['live']} | 💀 DEAD: {stats['dead']}", message.chat.id, status_msg.message_id, parse_mode="HTML")
+    bot.edit_message_text(f"🏁 <b>اكتمل الفحص!</b>\n\n✅ HITS: {stats['hit']}\n⚡ LIVE: {stats['live']}\n💀 DEAD: {stats['dead']}", message.chat.id, status_msg.message_id, parse_mode="HTML")
 
-# 3. تشغيل كل شيء بنظام الخيوط (Threading)
+# 3. بدء تشغيل البوت
 if __name__ == "__main__":
-    # تشغيل Flask أولاً في الخلفية
-    server_thread = Thread(target=start_server)
-    server_thread.daemon = True
-    server_thread.start()
-    
-    print("Server started on port 10000. Starting bot polling...")
-    
-    # تشغيل البوت
-    try:
-        bot.infinity_polling(timeout=10, long_polling_timeout=5)
-    except Exception as e:
-        print(f"Error: {e}")
+    print("Starting Telegram Bot...")
+    bot.infinity_polling()
