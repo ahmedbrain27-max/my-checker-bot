@@ -1,4 +1,3 @@
-stripe
-pyTelegramBotAPI
-requests
 flask
+stripe
+gunicorn
