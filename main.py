@@ -14,126 +14,133 @@ HTML_PAGE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LYNIX PRECISION CHECKER V4</title>
+    <title>LYNIX PREMIUM CHECKER</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #0a0a0a; color: #eee; text-align: center; padding: 10px; }
-        .container { max-width: 1000px; margin: auto; background: #151515; padding: 20px; border-radius: 15px; border: 1px solid #333; }
-        textarea { width: 95%; height: 120px; background: #222; color: #0f0; border: 1px solid #444; padding: 10px; border-radius: 8px; font-family: monospace; margin-bottom: 10px; }
-        button { background: #3498db; color: white; border: none; padding: 12px 50px; cursor: pointer; border-radius: 25px; font-size: 18px; font-weight: bold; margin-bottom: 20px; }
+        :root { --bg: #050505; --card-bg: #111; --border: #222; --accent: #3498db; --hit: #2ecc71; --live: #f1c40f; --dead: #e74c3c; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 20px; }
+        .wrapper { max-width: 1200px; margin: auto; }
         
-        .results-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; }
-        .box { background: #111; border-radius: 10px; padding: 10px; height: 350px; overflow-y: auto; border: 1px solid #222; text-align: left; position: relative; }
-        .box-title { position: sticky; top: 0; background: #111; padding: 5px; font-weight: bold; text-align: center; border-bottom: 1px solid #333; margin-bottom: 10px; }
+        /* الهيدر */
+        header { text-align: right; margin-bottom: 30px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        header h1 { margin: 0; font-size: 24px; color: var(--accent); }
         
-        .hit-box { border-top: 4px solid #2ecc71; color: #2ecc71; }
-        .live-box { border-top: 4px solid #f1c40f; color: #f1c40f; }
-        .dead-box { border-top: 4px solid #e74c3c; color: #e74c3c; }
+        /* منطقة المدخلات */
+        .input-section { background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 20px; }
+        textarea { width: 100%; height: 120px; background: #000; color: #0f0; border: 1px solid var(--border); padding: 15px; border-radius: 8px; font-family: monospace; box-sizing: border-box; resize: vertical; }
         
-        .card-entry { font-size: 12px; margin-bottom: 5px; padding: 5px; background: #1a1a1a; border-radius: 4px; word-break: break-all; border: 1px solid #222; }
-        #status { color: #3498db; font-weight: bold; margin-bottom: 10px; }
+        .controls { display: flex; align-items: center; gap: 15px; margin-top: 15px; }
+        button { background: var(--accent); color: #fff; border: none; padding: 12px 35px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        button:hover { opacity: 0.8; }
+        #status-label { font-size: 14px; color: #888; }
+
+        /* منطقة النتائج - ترتيب أفقي */
+        .results-container { display: flex; flex-direction: row; gap: 15px; justify-content: space-between; align-items: flex-start; }
+        .column { flex: 1; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); height: 500px; display: flex; flex-direction: column; overflow: hidden; }
+        
+        .column-header { padding: 15px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-weight: bold; }
+        .column-content { padding: 10px; overflow-y: auto; flex-grow: 1; font-family: monospace; font-size: 12px; }
+
+        /* ألوان الأعمدة */
+        .col-hit { border-top: 3px solid var(--hit); }
+        .col-live { border-top: 3px solid var(--live); }
+        .col-dead { border-top: 3px solid var(--dead); }
+        
+        .card-row { background: #000; border: 1px solid var(--border); padding: 8px; margin-bottom: 8px; border-radius: 4px; animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .hit-text { color: var(--hit); }
+        .live-text { color: var(--live); }
+        .dead-text { color: var(--dead); }
+
+        @media (max-width: 768px) { .results-container { flex-direction: column; } }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🎯 LYNIX CHECKER V4</h1>
-        <div id="status">جاهز للفحص</div>
-        
-        <textarea id="cardList" placeholder="أدخل اللستة هنا..."></textarea><br>
-        <button onclick="startCheck()">🚀 بدء الفحص (5s)</button>
+    <div class="wrapper">
+        <header>
+            <h1>LYNIX PRECISION <span>V5</span></h1>
+        </header>
 
-        <div class="results-grid">
-            <div class="box hit-box">
-                <div class="box-title">✅ HITS (رصيد) [<span id="count-hit">0</span>]</div>
-                <div id="hits-res"></div>
+        <div class="input-section">
+            <textarea id="cardList" placeholder="أدخل البطاقات هنا... التنسيق: 4444555566667777|MM|YY|CVV"></textarea>
+            <div class="controls">
+                <button onclick="processCards()">بدء الفحص</button>
+                <span id="status-label">الحالة: جاهز</span>
             </div>
-            <div class="box live-box">
-                <div class="box-title">✔️ LIVE (صفر) [<span id="count-live">0</span>]</div>
-                <div id="live-res"></div>
+        </div>
+
+        <div class="results-container">
+            <div class="column col-hit">
+                <div class="column-header"><span>✅ HITS</span> <span id="count-hit">0</span></div>
+                <div id="content-hit" class="column-content"></div>
             </div>
-            <div class="box dead-box">
-                <div class="box-title">💀 DEAD (مرفوض) [<span id="count-dead">0</span>]</div>
-                <div id="dead-res"></div>
+
+            <div class="column col-live">
+                <div class="column-header"><span>⚡ LIVE</span> <span id="count-live">0</span></div>
+                <div id="content-live" class="column-content"></div>
+            </div>
+
+            <div class="column col-dead">
+                <div class="column-header"><span>❌ DEAD</span> <span id="count-dead">0</span></div>
+                <div id="content-dead" class="column-content"></div>
             </div>
         </div>
     </div>
 
     <script>
-        let counts = {hit: 0, live: 0, dead: 0};
+        let isRunning = false;
+        async function processCards() {
+            if(isRunning) return;
+            const input = document.getElementById('cardList').value.trim();
+            if(!input) return alert("من فضلك أدخل البطاقات أولاً");
 
-        async function startCheck() {
-            const list = document.getElementById('cardList').value.split('\\n');
-            const status = document.getElementById('status');
+            const lines = input.split('\\n').filter(l => l.includes('|'));
+            isRunning = true;
+            const statusLabel = document.getElementById('status-label');
             
-            // تصغير العدادات
-            counts = {hit: 0, live: 0, dead: 0};
-            ['hit', 'live', 'dead'].forEach(t => {
-                document.getElementById(`${t}s-res`).innerHTML = '';
-                document.getElementById(`count-${t}`).innerText = '0';
+            // تصغير العدادات وتنظيف القوائم
+            const types = ['hit', 'live', 'dead'];
+            types.forEach(t => {
+                document.getElementById('content-' + t).innerHTML = '';
+                document.getElementById('count-' + t).innerText = '0';
             });
 
-            for (let i = 0; i < list.length; i++) {
-                let card = list[i].trim();
-                if (!card || !card.includes('|')) continue;
-                
-                status.innerHTML = `⏳ فحص ${i+1} من ${list.length}...`;
-                
+            for (let i = 0; i < lines.length; i++) {
+                let card = lines[i].trim();
+                statusLabel.innerText = `جاري فحص ${i+1} من ${lines.length}...`;
+
                 try {
                     const response = await fetch('/check', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({card: card})
+                        body: JSON.stringify({ card: card })
                     });
-                    const data = await response.json();
+                    const res = await response.json();
                     
-                    const type = data.status.toLowerCase(); // hit, live, or dead
-                    counts[type]++;
-                    document.getElementById(`count-${type}`).innerText = counts[type];
+                    const type = res.status.toLowerCase();
+                    const container = document.getElementById('content-' + type);
+                    const counter = document.getElementById('count-' + type);
                     
-                    const div = document.createElement('div');
-                    div.className = 'card-entry';
-                    div.innerHTML = `<code>${card}</code><br><small>${data.msg}</small>`;
-                    document.getElementById(`${type}s-res`).prepend(div);
+                    // إضافة النتيجة فوراً للواجهة
+                    const row = document.createElement('div');
+                    row.className = 'card-row';
+                    row.innerHTML = `<span class="${type}-text">▶ ${card}</span><br><small style="color:#666">${res.msg}</small>`;
+                    container.prepend(row);
                     
-                } catch (e) { console.error(e); }
-                
-                if (i < list.length - 1) {
-                    await new Promise(r => setTimeout(r, 5000));
+                    // تحديث العداد
+                    counter.innerText = parseInt(counter.innerText) + 1;
+
+                } catch (err) {
+                    console.error("Error checking card:", err);
+                }
+
+                if (i < lines.length - 1) {
+                    await new Promise(r => setTimeout(r, 5000)); // فاصل 5 ثوانٍ
                 }
             }
-            status.innerHTML = "🏁 اكتمل الفحص!";
+            isRunning = false;
+            statusLabel.innerText = "الحالة: اكتمل الفحص ✅";
         }
     </script>
 </body>
 </html>
-"""
-
-@app.route('/')
-def index():
-    return render_template_string(HTML_PAGE)
-
-@app.route('/check', methods=['POST'])
-def check():
-    data = request.json
-    card_raw = data.get('card', '')
-    try:
-        parts = [p.strip() for p in card_raw.split('|')]
-        num, mm, yy, cvc = parts[0], parts[1], parts[2], parts[3]
-        if len(yy) == 2: yy = "20" + yy
-
-        token = stripe.Token.create(
-            card={"number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc}
-        )
-        stripe.Charge.create(amount=50, currency="usd", source=token.id)
-        return jsonify({"status": "HIT", "msg": "شغالة وبها رصيد!"})
-
-    except stripe.error.CardError as e:
-        err = e.json_body.get('error', {})
-        if err.get('code') == "insufficient_funds":
-            return jsonify({"status": "LIVE", "msg": "رصيد غير كافٍ"})
-        return jsonify({"status": "DEAD", "msg": err.get('message', 'مرفوضة')})
-    except Exception:
-        return jsonify({"status": "DEAD", "msg": "خطأ في البيانات"})
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
