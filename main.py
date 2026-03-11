@@ -2,25 +2,19 @@ import stripe
 import telebot
 import os
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from flask import Flask
 from threading import Thread
 
-# 1. إعداد سيرفر فوري لإبقاء الخدمة تعمل (في حال احتجت لاحقاً للتبديل لـ Web Service)
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b"LYNIX ENGINE IS ONLINE")
+# --- إعداد سيرفر بسيط لإرضاء Render ومنع التوقف ---
+app = Flask(__name__)
+@app.route('/')
+def health(): return "ONLINE", 200
 
-def run_health_server():
+def run_flask():
     port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    server.serve_forever()
+    app.run(host='0.0.0.0', port=port)
 
-Thread(target=run_health_server, daemon=True).start()
-
-# 2. البيانات المحدثة (المفتاح الجديد)
+# --- بياناتك الخاصة ---
 stripe.api_key = "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"
 bot = telebot.TeleBot("8551972896:AAFOysETMd4tuyuArnqPA8-uM2Iz6z4fWuw")
 ADMIN_ID = 5473153501
@@ -28,7 +22,7 @@ ADMIN_ID = 5473153501
 @bot.message_handler(commands=['start'])
 def start(message):
     if message.from_user.id == ADMIN_ID:
-        bot.reply_to(message, "🚀 <b>تم تحديث المفتاح بنجاح!</b>\nالبوت جاهز الآن للفحص المباشر.", parse_mode="HTML")
+        bot.reply_to(message, "🚀 <b>تم تشغيل النظام بنجاح!</b>\n\nأرسل لستة البطاقات الآن للفحص.\nالتنسيق: <code>CARD|MM|YY|CVV</code>", parse_mode="HTML")
 
 @bot.message_handler(func=lambda message: True)
 def handle_cards(message):
@@ -44,30 +38,36 @@ def handle_cards(message):
             if "|" not in card_clean: continue
             num, mm, yy, cvc = card_clean.split('|')
             
-            # عملية الفحص الحقيقي
+            # محاولة الفحص عبر Stripe
             stripe.Charge.create(
-                amount=100, 
-                currency="usd",
-                source={
-                    "object": "card",
-                    "number": num,
-                    "exp_month": int(mm),
-                    "exp_year": int(yy),
-                    "cvc": cvc,
-                }
+                amount=100, currency="usd",
+                source={"object": "card", "number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc}
             )
             stats["hit"] += 1
-            bot.send_message(message.chat.id, f"✅ <b>HIT!</b>\n<code>{card_clean}</code>", parse_mode="HTML")
+            bot.send_message(message.chat.id, f"✅ <b>HIT!</b>\n<code>{card_clean}</code>\n💰 الحالة: رصيد مؤكد", parse_mode="HTML")
+
         except stripe.error.CardError as e:
             err = e.json_body.get('error', {})
             if err.get('code') == "insufficient_funds":
                 stats["live"] += 1
-                bot.send_message(message.chat.id, f"✔️ <b>LIVE</b>\n<code>{card_clean}</code>", parse_mode="HTML")
-            else: stats["dead"] += 1
-        except Exception: stats["dead"] += 1
+                bot.send_message(message.chat.id, f"✔️ <b>LIVE</b>\n<code>{card_clean}</code>\n⚡ الحالة: رصيد صفر", parse_mode="HTML")
+            else:
+                stats["dead"] += 1
+        except Exception:
+            stats["dead"] += 1
 
     bot.edit_message_text(f"🏁 <b>اكتمل الفحص!</b>\n\n✅ HITS: {stats['hit']}\n⚡ LIVE: {stats['live']}\n💀 DEAD: {stats['dead']}", message.chat.id, status_msg.message_id, parse_mode="HTML")
 
+# --- تشغيل البرنامج ---
 if __name__ == "__main__":
-    print("🚀 Bot is starting with the new key...")
-    bot.infinity_polling()
+    # تشغيل سيرفر الـ Health Check
+    Thread(target=run_flask, daemon=True).start()
+    
+    # حل مشكلة Conflict 409: تنظيف الاتصالات القديمة
+    print("🧹 Cleaning old Telegram sessions...")
+    bot.remove_webhook()
+    time.sleep(2)
+    
+    print("🚀 Starting Bot Polling...")
+    # بدء العمل
+    bot.infinity_polling(timeout=10, long_polling_timeout=5)
