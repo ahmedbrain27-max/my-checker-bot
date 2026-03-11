@@ -1,106 +1,108 @@
 import stripe
-import telebot
-import os
 import time
-from flask import Flask
-from threading import Thread
+import os
+from flask import Flask, render_template_string, request, jsonify
 
-# --- سيرفر صغير للبقاء أونلاين على Render ---
 app = Flask(__name__)
-@app.route('/')
-def health(): return "PRECISION ENGINE V3 ONLINE", 200
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# --- بياناتك الخاصة (التوكن والمفتاح المحدثين) ---
+# --- بياناتك الخاصة ---
 stripe.api_key = "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"
-bot = telebot.TeleBot("8551972896:AAGcP_yrXZgx-GvHDPda_tYVEq12L84H2hI")
-ADMIN_ID = 5473153501
 
-@bot.message_handler(commands=['start'])
-def start(message):
-    if message.from_user.id == ADMIN_ID:
-        bot.reply_to(message, "🎯 <b>تم تفعيل الفحص الدقيق (فاصل 5 ثوانٍ)</b>\n\nأرسل لستة البطاقات الآن. سيتم فحص كل بطاقة بعناية فائقة لضمان دقة النتائج 100%.", parse_mode="HTML")
+# --- تصميم الصفحة (HTML + CSS) ---
+HTML_PAGE = """
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>LYNIX PRECISION CHECKER</title>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; text-align: center; padding: 20px; }
+        textarea { width: 80%; height: 200px; background: #1e1e1e; color: #00ff00; border: 1px solid #333; padding: 10px; border-radius: 5px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 30px; cursor: pointer; border-radius: 5px; margin-top: 10px; font-size: 18px; }
+        #results { margin-top: 20px; text-align: left; display: inline-block; width: 80%; }
+        .hit { color: #00ff00; border-bottom: 1px solid #222; padding: 5px; }
+        .live { color: #ffff00; border-bottom: 1px solid #222; padding: 5px; }
+        .dead { color: #ff4444; border-bottom: 1px solid #222; padding: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🎯 محرك الفحص الدقيق V3</h1>
+    <p>أدخل البطاقات هنا (التنسيق: CARD|MM|YY|CVV)</p>
+    <textarea id="cardList" placeholder="4444555566667777|12|26|000"></textarea><br>
+    <button onclick="startCheck()">بدء الفحص (فاصل 5 ثوانٍ)</button>
+    <div id="status"></div>
+    <div id="results"></div>
 
-@bot.message_handler(func=lambda message: True)
-def handle_cards(message):
-    if message.from_user.id != ADMIN_ID: return
-    
-    # تقسيم الرسالة إلى أسطر
-    cards = [c.strip() for c in message.text.strip().split('\n') if "|" in c]
-    if not cards:
-        bot.reply_to(message, "❌ يرجى إرسال البطاقات بالتنسيق الصحيح: <code>CARD|MM|YY|CVV</code>", parse_mode="HTML")
-        return
-
-    total = len(cards)
-    status_msg = bot.reply_to(message, f"🔍 جاري فحص {total} بطاقة...\n⏱️ الفاصل الزمني: 5 ثوانٍ لضمان الدقة.")
-    
-    hits, live, dead = 0, 0, 0
-
-    for index, card in enumerate(cards, 1):
-        try:
-            # تنظيف البيانات
-            c_data = card.replace(" ", "").split('|')
-            if len(c_data) < 4: continue
-            num, mm, yy, cvc = c_data
+    <script>
+        async function startCheck() {
+            const list = document.getElementById('cardList').value.split('\\n');
+            const resDiv = document.getElementById('results');
+            const status = document.getElementById('status');
+            resDiv.innerHTML = '';
             
-            # 1. المرحلة الأولى: إنشاء Token (التحقق من صحة الأرقام)
-            token = stripe.Token.create(
-                card={
-                    "number": num,
-                    "exp_month": int(mm),
-                    "exp_year": int(yy),
-                    "cvc": cvc,
-                },
-            )
+            for (let i = 0; i < list.length; i++) {
+                const card = list[i].trim();
+                if (!card) continue;
+                
+                status.innerText = `جاري فحص: ${i+1} من أصل ${list.length}...`;
+                
+                try {
+                    const response = await fetch('/check', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({card: card})
+                    });
+                    const data = await response.json();
+                    
+                    const p = document.createElement('div');
+                    p.className = data.status.toLowerCase();
+                    p.innerText = `[${data.status}] ${card} - ${data.msg}`;
+                    resDiv.prepend(p);
+                } catch (e) { console.error(e); }
+                
+                if (i < list.length - 1) {
+                    status.innerText += " (انتظار 5 ثوانٍ لنظام الحماية...)";
+                    await new Promise(r => setTimeout(r, 5000));
+                }
+            }
+            status.innerText = "🏁 اكتمل الفحص!";
+        }
+    </script>
+</body>
+</html>
+"""
 
-            # 2. المرحلة الثانية: محاولة سحب 0.50$ (التحقق من الرصيد والعمل)
-            stripe.Charge.create(
-                amount=50, 
-                currency="usd",
-                description="Precision Validation Check",
-                source=token.id,
-            )
-            
-            hits += 1
-            bot.send_message(message.chat.id, f"✅ <b>HIT FOUND!</b>\n<code>{card}</code>\n💰 الحالة: بطاقة شغالة وبها رصيد.", parse_mode="HTML")
+@app.route('/')
+def index():
+    return render_template_string(HTML_PAGE)
 
-        except stripe.error.CardError as e:
-            err = e.json_body.get('error', {})
-            code = err.get('code', '')
-
-            # تصنيف الردود بناءً على أكواد البنك الرسمية
-            if code == "insufficient_funds":
-                live += 1
-                bot.send_message(message.chat.id, f"✔️ <b>LIVE (No Funds)</b>\n<code>{card}</code>\n⚡ الحالة: شغالة لكن الرصيد صفر.", parse_mode="HTML")
-            elif code in ["incorrect_cvc", "invalid_cvc"]:
-                dead += 1
-                bot.send_message(message.chat.id, f"💀 <b>DEAD (Wrong CVC)</b>\n<code>{card}</code>\n❌ السبب: الكود الخلفي خطأ.", parse_mode="HTML")
-            else:
-                dead += 1
-                # يمكنك تفعيل السطر القادم لرؤية أسباب الرفض الأخرى (اختياري)
-                # bot.send_message(message.chat.id, f"❌ <b>DECLINED</b>\n<code>{card}</code>\nالسبب: {err.get('message')}", parse_mode="HTML")
+@app.route('/check', methods=['POST'])
+def check():
+    data = request.json
+    card_str = data.get('card', '')
+    try:
+        num, mm, yy, cvc = card_str.replace(" ", "").split('|')
         
-        except Exception:
-            dead += 1
+        # إنشاء توكن للفحص
+        token = stripe.Token.create(
+            card={"number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc}
+        )
+        # محاولة سحب 0.50$
+        stripe.Charge.create(
+            amount=50, currency="usd", source=token.id, description="Web Checker Verify"
+        )
+        return jsonify({"status": "HIT", "msg": "بطاقة شغالة وبها رصيد!"})
 
-        # تحديث عداد الفحص في الرسالة الأصلية كل 3 بطاقات
-        if index % 3 == 0 or index == total:
-            try:
-                bot.edit_message_text(f"⏳ جاري الفحص الدقيق ({index}/{total})...\n✅ HIT: {hits} | ⚡ LIVE: {live} | 💀 DEAD: {dead}", message.chat.id, status_msg.message_id)
-            except: pass
-
-        # ⏳ الانتظار لمدة 5 ثوانٍ قبل فحص البطاقة التالية (مطلبك الأساسي)
-        if index < total:
-            time.sleep(5)
-
-    bot.send_message(message.chat.id, f"🏁 <b>اكتمل الفحص النهائي!</b>\n\n✅ HIT (رصيد): {hits}\n⚡ LIVE (صفر): {live}\n💀 DEAD (مرفوضة): {dead}", parse_mode="HTML")
+    except stripe.error.CardError as e:
+        err = e.json_body.get('error', {})
+        code = err.get('code', '')
+        if code == "insufficient_funds":
+            return jsonify({"status": "LIVE", "msg": "شغالة لكن الرصيد صفر."})
+        return jsonify({"status": "DEAD", "msg": err.get('message')})
+    except Exception as e:
+        return jsonify({"status": "ERROR", "msg": "خطأ في التنسيق"})
 
 if __name__ == "__main__":
-    Thread(target=run_flask, daemon=True).start()
-    bot.remove_webhook()
-    time.sleep(1)
-    print("🚀 Precision Engine with 5s delay is starting...")
-    bot.infinity_polling()
+    # Render يطلب المنفذ 10000
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
