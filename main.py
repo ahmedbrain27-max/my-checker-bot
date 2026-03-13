@@ -1,14 +1,13 @@
 import requests
 import re
-import random
+import concurrent.futures
 from flask import Flask, request, jsonify
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
-import concurrent.futures
 
 app = Flask(__name__)
 
-# --- قائمة الأنماط الشاملة (Regex) لكل أنواع المفاتيح ---
+# قائمة الأنماط الشاملة (Regex) لقنص كافة أنواع المفاتيح
 PATTERNS = {
     'Secret Key (SK)': r'sk_live_[a-zA-Z0-9]{24,}',
     'Publishable Key (PK)': r'pk_live_[a-zA-Z0-9]{24,}',
@@ -18,62 +17,63 @@ PATTERNS = {
     'Webhook Secret': r'whsec_[a-zA-Z0-9]{24,}'
 }
 
-# دالة الفحص في النص
 def extract_keys(text):
     found = {}
     for label, pattern in PATTERNS.items():
         matches = re.findall(pattern, text)
         if matches:
-            found[label] = list(set(matches)) # إرجاع نتائج فريدة
+            found[label] = list(set(matches))
     return found
 
-def get_all_links(url, html):
-    links = set()
-    soup = BeautifulSoup(html, 'html.parser')
-    
-    # سحب ملفات الـ JS
-    for script in soup.find_all('script'):
-        src = script.get('src')
-        if src:
-            links.add(urljoin(url, src))
-            
-    # سحب الروابط الداخلية (ربما توجد صفحة دفع مخفية)
-    for a in soup.find_all('a', href=True):
-        full_url = urljoin(url, a['href'])
-        if urlparse(url).netloc == urlparse(full_url).netloc:
-            links.add(full_url)
-            
-    return links
+def get_assets(url, html):
+    assets = set()
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+        # سحب ملفات الـ JS
+        for script in soup.find_all('script'):
+            src = script.get('src')
+            if src: assets.add(urljoin(url, src))
+        
+        # سحب الروابط الداخلية (صفحات الدفع المحتملة)
+        for a in soup.find_all('a', href=True):
+            full_url = urljoin(url, a['href'])
+            if urlparse(url).netloc == urlparse(full_url).netloc:
+                assets.add(full_url)
+    except: pass
+    return assets
 
-@app.route('/deep_scan', methods=['POST'])
-def deep_scan():
-    base_url = request.json.get('url')
-    if not base_url: return jsonify({"error": "URL missing"}), 400
+@app.route('/')
+def home():
+    return "Server is Running - LYNIX ELITE SNIPER"
+
+@app.route('/scan', methods=['POST'])
+def scan():
+    data = request.json
+    base_url = data.get('url')
+    if not base_url:
+        return jsonify({"status": "Error", "message": "URL missing"}), 400
 
     all_found_keys = {}
-    scanned_urls = []
-    
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
+
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
-        # 1. فحص الصفحة الرئيسية وجلب كل الروابط والملفات
+        # 1. فحص الصفحة الأساسية
         response = requests.get(base_url, headers=headers, timeout=10)
-        scanned_urls.append(base_url)
-        
         initial_keys = extract_keys(response.text)
         all_found_keys.update(initial_keys)
         
-        target_links = get_all_links(base_url, response.text)
+        # 2. جمع الأصول (JS وروابط داخلية)
+        target_assets = get_assets(base_url, response.text)
 
-        # 2. فحص الروابط والملفات بشكل متوازي (Threads) لسرعة خيالية
+        # 3. الفحص المتوازي (Threading) - قوة Pro Ultra
         def fetch_and_scan(link):
             try:
                 res = requests.get(link, headers=headers, timeout=5)
                 return extract_keys(res.text)
-            except:
-                return {}
+            except: return {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-            future_results = executor.map(fetch_and_scan, target_links)
+            future_results = executor.map(fetch_and_scan, target_assets)
             for result in future_results:
                 for label, keys in result.items():
                     if label in all_found_keys:
@@ -83,12 +83,12 @@ def deep_scan():
 
         return jsonify({
             "status": "Success",
-            "scanned_count": len(target_links) + 1,
+            "scanned_assets_count": len(target_assets),
             "keys_found": all_found_keys
         })
 
     except Exception as e:
-        return jsonify({"status": "Error", "message": str(e)})
+        return jsonify({"status": "Error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
