@@ -1,7 +1,9 @@
 import requests
 import re
 import json
+import base64
 from flask import Flask, request, jsonify, render_template_string
+from urllib.parse import unquote
 
 app = Flask(__name__)
 
@@ -10,33 +12,33 @@ HTML_INTERFACE = """
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX FULL EXTRACTOR V21</title>
+    <title>LYNIX SESSION DECODER V23</title>
     <style>
-        body { background: #000; color: #0f0; font-family: monospace; padding: 20px; text-align: center; }
-        .container { max-width: 900px; margin: auto; border: 1px solid #0f0; padding: 25px; box-shadow: 0 0 20px #0f0; background: #050505; }
-        .res-table { width: 100%; margin-top: 20px; border-collapse: collapse; background: #111; }
-        .res-table td { border: 1px solid #333; padding: 12px; text-align: right; color: #fff; }
-        .highlight { color: #0f0; font-weight: bold; }
+        body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; padding: 20px; text-align: center; }
+        .container { max-width: 900px; margin: auto; border: 1px solid #00ff41; padding: 30px; box-shadow: 0 0 50px #00ff41; background: #050505; }
+        .res-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+        .res-table td { border: 1px solid #222; padding: 15px; text-align: right; color: #fff; }
+        .highlight { color: #00ff41; font-weight: bold; }
         .label { color: #888; width: 30%; }
-        input { width: 90%; padding: 15px; background: #000; border: 1px solid #0f0; color: #fff; margin-bottom: 20px; }
-        button { width: 100%; padding: 15px; background: #0f0; color: #000; font-weight: bold; border: none; cursor: pointer; font-size: 1.1rem; }
+        input { width: 90%; padding: 15px; background: #000; border: 1px solid #00ff41; color: #fff; margin-bottom: 20px; }
+        button { width: 100%; padding: 15px; background: #00ff41; color: #000; font-weight: bold; border: none; cursor: pointer; font-size: 1.2rem; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>[ LYNIX FULL SNIPER V21 ]</h1>
-        <p>استخراج شامل: المبلغ، الـ PK، والإيميل 🎯</p>
-        <input type="text" id="url" placeholder="الصق رابط cs_live هنا...">
-        <button onclick="extract()">إطلاق الاستخراج الشامل ⚡</button>
+        <h1>[ LYNIX SESSION SNIPER V23 ]</h1>
+        <p>تحليل روابط cs_live واستخراج البيانات العميقة 🎯</p>
+        <input type="text" id="url" placeholder="الصق رابط Stripe Checkout هنا...">
+        <button onclick="decodeSession()">فك تشفير الجلسة ⚡</button>
         <div id="status" style="margin-top:20px; color: yellow;"></div>
         <div id="out"></div>
     </div>
     <script>
-        async function extract() {
+        async function decodeSession() {
             const url = document.getElementById('url').value;
             const status = document.getElementById('status');
             const out = document.getElementById('out');
-            status.innerHTML = "⏳ جاري التنقيب عن البيانات والإيميلات المخفية...";
+            status.innerHTML = "⏳ جاري تحليل الرابط وفك تشفير حزم البيانات...";
             out.innerHTML = "";
             try {
                 const res = await fetch('/scan', {
@@ -48,14 +50,14 @@ HTML_INTERFACE = """
                 if(data.status === "Success") {
                     status.innerHTML = "✅ تم الاستخراج بنجاح!";
                     out.innerHTML = `<table class="res-table">
-                        <tr><td class="label">المتجر</td><td class="highlight">${data.merchant}</td></tr>
-                        <tr><td class="label">المبلغ</td><td class="highlight" style="color:#0f0;">${data.amount} ${data.currency}</td></tr>
+                        <tr><td class="label">المتجر (Merchant)</td><td class="highlight">${data.merchant}</td></tr>
+                        <tr><td class="label">المبلغ (Amount)</td><td class="highlight" style="color:#0f0;">${data.amount} ${data.currency}</td></tr>
                         <tr><td class="label">البريد (Email)</td><td class="highlight" style="color:#00bcff;">${data.email}</td></tr>
-                        <tr><td class="label">الـ PK (Live)</td><td class="highlight" style="color:yellow;">${data.pk}</td></tr>
-                        <tr><td class="label">وصف العملية</td><td class="highlight">${data.statement}</td></tr>
+                        <tr><td class="label">المفتاح (PK Live)</td><td class="highlight" style="color:yellow;">${data.pk}</td></tr>
+                        <tr><td class="label">بيان الدفع</td><td class="highlight">${data.statement}</td></tr>
                     </table>`;
-                } else { status.innerHTML = "❌ فشل: " + data.message; }
-            } catch(e) { status.innerHTML = "❌ خطأ في السيرفر"; }
+                } else { status.innerHTML = "❌ خطأ: " + data.message; }
+            } catch(e) { status.innerHTML = "❌ خطأ في الاتصال بالسيرفر"; }
         }
     </script>
 </body>
@@ -69,37 +71,64 @@ def index():
 @app.route('/scan', methods=['POST'])
 def scan():
     url = request.json.get('url')
-    headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15'}
+    
+    # محاكاة متصفح حقيقي لإجبار Stripe على إظهار البيانات
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://checkout.stripe.com/'
+    }
 
     try:
-        res = requests.get(url, headers=headers, timeout=15)
+        # الدخول للرابط وجلب محتواه
+        res = requests.get(url, headers=headers, timeout=20)
         
-        # 1. استخراج الإيميل (Email)
-        # نبحث عن نمط الإيميل داخل كود الـ JSON المدمج
-        email_match = re.search(r'\"email\":\"(.*?)\"', res.text)
-        email = email_match.group(1) if email_match else "غير متوفر (Not Provided)"
-
-        # 2. استخراج المبلغ والعملة
-        amount = "--"
-        money_data = re.search(r'\"amount_total\":(\d+)', res.text)
-        if money_data:
-            amount = f"{int(money_data.group(1)) / 100:.2f}"
-        
-        # 3. استخراج الـ PK
+        # 1. استخراج الـ PK (نبحث عنه في كود الصفحة وفي الروابط)
+        pk = "Not Found"
         pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', res.text)
+        if not pk_match:
+            # محاولة البحث في الجزء المشفر من الرابط (Hash)
+            pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', unquote(url))
         
-        # 4. استخراج وصف الفاتورة (Statement Descriptor)
+        if pk_match: pk = pk_match.group(0)
+
+        # 2. استخراج البيانات من كود الـ JSON المدمج (Bootstrapped Data)
+        amount = "--"
+        currency = "USD"
+        email = "غير متوفر"
+        merchant = "Stripe Merchant"
         statement = "N/A"
-        st_match = re.search(r'\"statement_descriptor\":\"(.*?)\"', res.text)
-        if st_match: statement = st_match.group(1)
+
+        # استخدام مصفوفة بحث لضمان جلب البيانات حتى لو تغيرت مسمياتها
+        data_patterns = {
+            "amount": [r'\"amount_total\":(\d+)', r'\"total\":(\d+)', r'\"amount\":(\d+)'],
+            "email": [r'\"email\":\"(.*?)\"', r'\"customer_email\":\"(.*?)\"'],
+            "merchant": [r'\"merchant_name\":\"(.*?)\"', r'\"display_name\":\"(.*?)\"'],
+            "statement": [r'\"statement_descriptor\":\"(.*?)\"']
+        }
+
+        for key, patterns in data_patterns.items():
+            for p in patterns:
+                match = re.search(p, res.text)
+                if match:
+                    if key == "amount": amount = f"{int(match.group(1)) / 100:.2f}"
+                    elif key == "email": email = match.group(1)
+                    elif key == "merchant": merchant = match.group(1)
+                    elif key == "statement": statement = match.group(1)
+                    break
+
+        # محاولة أخيرة لجلب اسم المتجر من الـ Title إذا فشل الـ JSON
+        if merchant == "Stripe Merchant":
+            title = re.search(r'<title>(.*?)</title>', res.text)
+            if title: merchant = title.group(1).replace("Pay ", "").split('|')[0].strip()
 
         return jsonify({
             "status": "Success",
-            "merchant": "BLACKBOX AI" if "blackbox" in res.text.lower() else "Stripe Merchant",
+            "merchant": merchant,
             "amount": amount,
-            "currency": "USD",
+            "currency": currency,
             "email": email,
-            "pk": pk_match.group(0) if pk_match else "Not Found",
+            "pk": pk,
             "statement": statement
         })
     except Exception as e:
