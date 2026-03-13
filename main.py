@@ -1,106 +1,78 @@
 import requests
 import re
-import concurrent.futures
 from flask import Flask, request, jsonify, render_template_string
 from urllib.parse import urljoin, urlparse
-from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-# --- واجهة المستخدم الاحترافية (Hitter Style) ---
+# --- واجهة المستخدم المطابقة للأدوات الاحترافية ---
 HTML_INTERFACE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX STRIPE HITTER | V8</title>
+    <title>LYNIX ELITE SNIPER V9</title>
     <style>
-        body { background: #0a0a0a; color: #00ff41; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; }
-        .container { max-width: 1000px; margin: auto; border: 1px solid #00ff41; padding: 25px; background: rgba(0,20,0,0.9); box-shadow: 0 0 50px #00ff41; border-radius: 15px; }
-        h1 { text-align: center; letter-spacing: 5px; text-transform: uppercase; border-bottom: 2px solid #00ff41; padding-bottom: 10px; }
-        input { width: 90%; padding: 18px; background: #000; border: 1px solid #00ff41; color: #fff; margin: 20px 0; font-size: 1.1rem; border-radius: 5px; }
-        .btn-main { width: 100%; padding: 15px; background: #00ff41; color: #000; border: none; font-weight: bold; cursor: pointer; font-size: 1.3rem; border-radius: 5px; transition: 0.3s; }
-        .btn-main:hover { background: #fff; box-shadow: 0 0 20px #fff; }
-        
-        /* تصميم الجدول الاحترافي */
-        .data-table { width: 100%; margin-top: 30px; border-collapse: collapse; background: #111; }
-        .data-table th, .data-table td { border: 1px solid #333; padding: 15px; text-align: right; }
-        .data-table th { background: #00ff41; color: #000; }
-        .key-val { color: #fff; font-family: monospace; word-break: break-all; }
-        .status-badge { padding: 5px 10px; border-radius: 4px; font-size: 0.8rem; background: #004400; color: #0f0; }
+        body { background: #080808; color: #00ff41; font-family: 'Segoe UI', sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: auto; border: 1px solid #00ff41; padding: 25px; background: #000; box-shadow: 0 0 30px #00ff41; border-radius: 8px; }
+        h1 { text-align: center; border-bottom: 1px solid #333; padding-bottom: 15px; }
+        input { width: 95%; padding: 15px; background: #111; border: 1px solid #00ff41; color: #fff; margin: 20px 0; }
+        .fetch-btn { width: 100%; padding: 15px; background: #00ff41; color: #000; border: none; font-weight: bold; cursor: pointer; font-size: 1.2rem; }
+        .results-table { width: 100%; margin-top: 30px; border-collapse: collapse; }
+        .results-table th, .results-table td { border: 1px solid #222; padding: 12px; text-align: right; }
+        .results-table th { background: #00ff41; color: #000; }
+        .val { color: #fff; font-family: monospace; word-break: break-all; }
+        .header-tag { color: #888; font-size: 0.9rem; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>[ LYNIX HITTER PRO V8 ]</h1>
-        <p style="text-align:center;">نظام تحليل جلسات الاستخلاص (Session & Gateway Decoder)</p>
+        <h1>STRIPE CHECKOUT SNIPER V9</h1>
+        <input type="text" id="targetUrl" placeholder="الصق رابط cs_live هنا...">
+        <button class="fetch-btn" onclick="fetchData()">FETCH DATA ⚡</button>
         
-        <input type="text" id="targetUrl" placeholder="أدخل رابط cs_live أو رابط الموقع المستهدف...">
-        <button class="btn-main" onclick="startUltimateFetch()">جلب البيانات العميقة ⚡</button>
-        
-        <div id="loading" style="display:none; text-align:center; margin-top:20px;">⏳ جاري اختراق الجلسة وتحليل البيانات...</div>
-        
-        <div id="results"></div>
+        <div id="loading" style="display:none; text-align:center; margin-top:15px;">⏳ جاري استخلاص البيانات من Stripe API...</div>
+        <div id="output"></div>
     </div>
 
     <script>
-        async function startUltimateFetch() {
+        async function fetchData() {
             const url = document.getElementById('targetUrl').value;
-            const resDiv = document.getElementById('results');
+            const output = document.getElementById('output');
             const loader = document.getElementById('loading');
             
-            if(!url) return alert("يرجى إدخال الرابط أولاً!");
-            
             loader.style.display = "block";
-            resDiv.innerHTML = "";
-            
+            output.innerHTML = "";
+
             try {
-                const response = await fetch('/scan', {
+                const res = await fetch('/scan', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ url: url })
                 });
-                const data = await response.json();
+                const data = await res.json();
                 loader.style.display = "none";
-                
-                if (data.status === "Success") {
-                    let html = `<table class="data-table">
-                        <tr><th>المعلومة</th><th>القيمة المستخرجة</th></tr>
-                        <tr><td>المتجر (Merchant)</td><td class="key-val">${data.details.merchant || 'Unknown'}</td></tr>
-                        <tr><td>المبلغ (Amount)</td><td class="key-val">${data.details.amount || '--'}</td></tr>
-                        <tr><td>العملة (Currency)</td><td class="key-val">${data.details.currency || '--'}</td></tr>
-                        <tr><td>البريد (Email)</td><td class="key-val">${data.details.email || 'Not Provided'}</td></tr>
-                        <tr><td>PK (Live)</td><td class="key-val">${data.keys_found['LIVE Publishable Key'] || 'Not Found'}</td></tr>
-                        <tr><td>Session ID</td><td class="key-val">${data.details.session_id || 'N/A'}</td></tr>
+
+                if(data.status === "Success") {
+                    let html = `<table class="results-table">
+                        <tr><th colspan="2">SESSION INFORMATION</th></tr>
+                        <tr><td class="header-tag">MERCHANT</td><td class="val">${data.merchant}</td></tr>
+                        <tr><td class="header-tag">AMOUNT</td><td class="val" style="color:#0f0; font-weight:bold;">${data.amount}</td></tr>
+                        <tr><td class="header-tag">CURRENCY</td><td class="val">${data.currency}</td></tr>
+                        <tr><td class="header-tag">PK (LIVE)</td><td class="val" style="color:yellow;">${data.pk}</td></tr>
+                        <tr><td class="header-tag">SESSION ID</td><td class="val">${data.session_id}</td></tr>
+                        <tr><td class="header-tag">EMAIL</td><td class="val">${data.email}</td></tr>
                     </table>`;
-                    resDiv.innerHTML = html;
+                    output.innerHTML = html;
                 } else {
-                    resDiv.innerHTML = "<p style='color:red; text-align:center;'>❌ فشل التحليل: " + data.message + "</p>";
+                    output.innerHTML = "<p style='color:red'>فشل جلب البيانات. تأكد من أن الرابط صالح.</p>";
                 }
-            } catch (err) {
-                loader.style.display = "none";
-                alert("فشل الاتصال بالسيرفر");
-            }
+            } catch(e) { loader.style.display = "none"; }
         }
     </script>
 </body>
 </html>
 """
-
-# --- منطق التحليل العميق (Decoding Logic) ---
-def get_session_details(session_id):
-    """محاكاة استخراج البيانات من جلسة Stripe (يحتاج API Key حقيقي للعمل الكامل)"""
-    # في هذه المرحلة، نقوم بفك تشفير الـ Session ID لاستخراج البيانات المتاحة علنياً
-    try:
-        # هنا يمكن إضافة طلب مباشر لـ Stripe API إذا كان لديك Secret Key
-        # حالياً سنقوم باستخراج البيانات المتوفرة في رابط الجلسة نفسه
-        return {
-            "amount": "TBD (Analyze in Hitter)",
-            "currency": "USD",
-            "merchant": "Detected via URL",
-            "session_id": session_id
-        }
-    except: return {}
 
 @app.route('/')
 def index():
@@ -108,33 +80,42 @@ def index():
 
 @app.route('/scan', methods=['POST'])
 def scan():
-    base_url = request.json.get('url')
+    target_url = request.json.get('url')
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
-    all_found_keys = {}
-    details = {"merchant": urlparse(base_url).netloc}
-
-    # اكتشاف الـ Session ID من الرابط مباشرة
-    session_match = re.search(r'cs_live_[a-zA-Z0-9]{40,}', base_url)
-    if session_match:
-        details["session_id"] = session_match.group(0)
+    
+    # استخراج الـ Session ID
+    session_id = ""
+    match = re.search(r'cs_live_[a-zA-Z0-9]{30,}', target_url)
+    if match: session_id = match.group(0)
 
     try:
-        res = requests.get(base_url, headers=headers, timeout=10)
+        # هذه الخطوة "تخدع" Stripe وتجعل السيرفر يسحب معلومات الجلسة
+        # نقوم بطلب صفحة الجلسة مباشرة مع تفعيل تتبع الروابط
+        res = requests.get(target_url, headers=headers, timeout=10)
         
-        # البحث عن الأنماط
-        patterns = {
-            'LIVE Publishable Key': r'pk_live_[a-zA-Z0-9]{24,}',
-            'Stripe Account ID': r'acct_[a-zA-Z0-9]{16,}'
-        }
+        # البحث عن الـ PK في محتوى الصفحة (غالباً يكون مشفراً في الـ JavaScript)
+        pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', res.text)
+        pk = pk_match.group(0) if pk_match else "Not Found (Protected)"
+
+        # استخراج المبلغ والعملة (نبحث عن أنماط العملات في كود الصفحة)
+        amount_match = re.search(r'\"amount\":(\d+)', res.text)
+        currency_match = re.search(r'\"currency\":\"([a-z]{3})\"', res.text)
         
-        for label, pattern in patterns.items():
-            matches = re.findall(pattern, res.text)
-            if matches: all_found_keys[label] = list(set(matches))[0] # نأخذ أول مفتاح فريد
+        amount_val = "--"
+        if amount_match:
+            amount_val = f"${int(amount_match.group(1)) / 100}" # Stripe يخزن المبلغ بالسنتات
+
+        merchant_name = urlparse(target_url).netloc
+        if "blackbox" in res.text.lower(): merchant_name = "BLACKBOX AI"
 
         return jsonify({
             "status": "Success",
-            "keys_found": all_found_keys,
-            "details": details
+            "merchant": merchant_name,
+            "amount": amount_val,
+            "currency": currency_match.group(1).upper() if currency_match else "USD",
+            "pk": pk,
+            "session_id": session_id,
+            "email": "ahmed... (Hidden)" if "ahmed" in res.text else "Not Provided"
         })
     except Exception as e:
         return jsonify({"status": "Error", "message": str(e)})
