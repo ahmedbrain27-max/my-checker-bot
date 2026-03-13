@@ -1,111 +1,94 @@
 import requests
-from bs4 import BeautifulSoup
 import re
-from flask import Flask, request, jsonify, render_template_string
-from urllib.parse import urljoin
+import random
+from flask import Flask, request, jsonify
+from urllib.parse import urljoin, urlparse
+from bs4 import BeautifulSoup
+import concurrent.futures
 
 app = Flask(__name__)
 
-# دالة البحث عن المفاتيح (نفس المنطق السابق)
-def find_keys_in_text(text):
-    keys = {}
-    pk = re.search(r'pk_live_[a-zA-Z0-9]{24,}', text)
-    cs = re.search(r'pi_[a-zA-Z0-9]{16,}_secret_[a-zA-Z0-9]{24,}', text)
-    if pk: keys['pk'] = pk.group(0)
-    if cs: keys['cs'] = cs.group(0)
-    return keys
+# --- قائمة الأنماط الشاملة (Regex) لكل أنواع المفاتيح ---
+PATTERNS = {
+    'Secret Key (SK)': r'sk_live_[a-zA-Z0-9]{24,}',
+    'Publishable Key (PK)': r'pk_live_[a-zA-Z0-9]{24,}',
+    'Client Secret (CS)': r'pi_[a-zA-Z0-9]{16,}_secret_[a-zA-Z0-9]{24,}',
+    'Session ID (SS)': r'cs_live_[a-zA-Z0-9]{50,}',
+    'Access Token': r'access_token_live_[a-zA-Z0-9]{24,}',
+    'Webhook Secret': r'whsec_[a-zA-Z0-9]{24,}'
+}
 
-@app.route('/')
-def index():
-    return render_template_string(HTML_UI)
+# دالة الفحص في النص
+def extract_keys(text):
+    found = {}
+    for label, pattern in PATTERNS.items():
+        matches = re.findall(pattern, text)
+        if matches:
+            found[label] = list(set(matches)) # إرجاع نتائج فريدة
+    return found
 
-@app.route('/scan', methods=['POST'])
-def scan_url():
-    target_url = request.json.get('url')
-    if not target_url: return jsonify({"error": "No URL provided"}), 400
+def get_all_links(url, html):
+    links = set()
+    soup = BeautifulSoup(html, 'html.parser')
     
-    found_data = {"pk": "Not Found", "cs": "Not Found", "js_files": []}
+    # سحب ملفات الـ JS
+    for script in soup.find_all('script'):
+        src = script.get('src')
+        if src:
+            links.add(urljoin(url, src))
+            
+    # سحب الروابط الداخلية (ربما توجد صفحة دفع مخفية)
+    for a in soup.find_all('a', href=True):
+        full_url = urljoin(url, a['href'])
+        if urlparse(url).netloc == urlparse(full_url).netloc:
+            links.add(full_url)
+            
+    return links
+
+@app.route('/deep_scan', methods=['POST'])
+def deep_scan():
+    base_url = request.json.get('url')
+    if not base_url: return jsonify({"error": "URL missing"}), 400
+
+    all_found_keys = {}
+    scanned_urls = []
     
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(target_url, headers=headers, timeout=10)
-        source = response.text
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0'}
+        # 1. فحص الصفحة الرئيسية وجلب كل الروابط والملفات
+        response = requests.get(base_url, headers=headers, timeout=10)
+        scanned_urls.append(base_url)
         
-        # فحص الصفحة الرئيسية
-        keys = find_keys_in_text(source)
-        found_data.update(keys)
+        initial_keys = extract_keys(response.text)
+        all_found_keys.update(initial_keys)
         
-        # فحص ملفات JS
-        soup = BeautifulSoup(source, 'html.parser')
-        for script in soup.find_all('script'):
-            src = script.get('src')
-            if src:
-                js_url = urljoin(target_url, src)
-                found_data['js_files'].append(js_url)
-                try:
-                    js_res = requests.get(js_url, headers=headers, timeout=5)
-                    js_keys = find_keys_in_text(js_res.text)
-                    if js_keys.get('pk'): found_data['pk'] = js_keys['pk']
-                    if js_keys.get('cs'): found_data['cs'] = js_keys['cs']
-                except: continue
-                
-        return jsonify(found_data)
+        target_links = get_all_links(base_url, response.text)
+
+        # 2. فحص الروابط والملفات بشكل متوازي (Threads) لسرعة خيالية
+        def fetch_and_scan(link):
+            try:
+                res = requests.get(link, headers=headers, timeout=5)
+                return extract_keys(res.text)
+            except:
+                return {}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+            future_results = executor.map(fetch_and_scan, target_links)
+            for result in future_results:
+                for label, keys in result.items():
+                    if label in all_found_keys:
+                        all_found_keys[label] = list(set(all_found_keys[label] + keys))
+                    else:
+                        all_found_keys[label] = keys
+
+        return jsonify({
+            "status": "Success",
+            "scanned_count": len(target_links) + 1,
+            "keys_found": all_found_keys
+        })
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# واجهة المستخدم (HTML UI)
-HTML_UI = """
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <title>Stripe Key Scanner | LYNIX</title>
-    <style>
-        body { background: #050505; color: #00ff41; font-family: monospace; padding: 20px; }
-        .box { border: 1px solid #00ff41; padding: 20px; max-width: 700px; margin: auto; box-shadow: 0 0 15px #00ff41; }
-        input { width: 80%; padding: 10px; background: #000; border: 1px solid #00ff41; color: #fff; }
-        button { padding: 10px 20px; background: #00ff41; color: #000; border: none; cursor: pointer; font-weight: bold; }
-        .result { margin-top: 20px; padding: 10px; border-top: 1px solid #333; }
-        .key-found { color: #fff; background: #222; padding: 5px; margin: 5px 0; display: block; }
-    </style>
-</head>
-<body>
-    <div class="box">
-        <h2>🔍 STRIPE KEY SCANNER (PRO)</h2>
-        <p>أدخل رابط الموقع لتحليله واستخراج المفاتيح:</p>
-        <input type="text" id="targetUrl" placeholder="https://example.com/checkout">
-        <button onclick="startScan()">إبدأ الفحص</button>
-        <div id="results" class="result"></div>
-    </div>
-
-    <script>
-        async function startScan() {
-            const url = document.getElementById('targetUrl').value;
-            const resDiv = document.getElementById('results');
-            resDiv.innerHTML = "⏳ جاري تحليل الموقع وملفات الـ JS...";
-            
-            const response = await fetch('/scan', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url: url })
-            });
-            const data = await response.json();
-            
-            if(data.error) {
-                resDiv.innerHTML = "❌ خطأ: " + data.error;
-            } else {
-                resDiv.innerHTML = `
-                    <p>النتائج المستخرجة:</p>
-                    <span class="key-found">PK_LIVE: ${data.pk}</span>
-                    <span class="key-found">CLIENT_SECRET: ${data.cs}</span>
-                    <p style="font-size:0.8rem">تم فحص ${data.js_files.length} ملفات JS.</p>
-                `;
-            }
-        }
-    </script>
-</body>
-</html>
-"""
+        return jsonify({"status": "Error", "message": str(e)})
 
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port=10000)
