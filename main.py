@@ -1,58 +1,105 @@
-import stripe
-import os
+import requests
+from bs4 import BeautifulSoup
+import re
 from flask import Flask, request, jsonify, render_template_string
+from urllib.parse import urljoin
 
 app = Flask(__name__)
 
-# ضع مفتاح الـ sk_live الخاص بك هنا
-stripe.api_key = "sk_live_..." 
+# دالة البحث عن المفاتيح (نفس المنطق السابق)
+def find_keys_in_text(text):
+    keys = {}
+    pk = re.search(r'pk_live_[a-zA-Z0-9]{24,}', text)
+    cs = re.search(r'pi_[a-zA-Z0-9]{16,}_secret_[a-zA-Z0-9]{24,}', text)
+    if pk: keys['pk'] = pk.group(0)
+    if cs: keys['cs'] = cs.group(0)
+    return keys
 
-HTML_GATE = """
+@app.route('/')
+def index():
+    return render_template_string(HTML_UI)
+
+@app.route('/scan', methods=['POST'])
+def scan_url():
+    target_url = request.json.get('url')
+    if not target_url: return jsonify({"error": "No URL provided"}), 400
+    
+    found_data = {"pk": "Not Found", "cs": "Not Found", "js_files": []}
+    
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(target_url, headers=headers, timeout=10)
+        source = response.text
+        
+        # فحص الصفحة الرئيسية
+        keys = find_keys_in_text(source)
+        found_data.update(keys)
+        
+        # فحص ملفات JS
+        soup = BeautifulSoup(source, 'html.parser')
+        for script in soup.find_all('script'):
+            src = script.get('src')
+            if src:
+                js_url = urljoin(target_url, src)
+                found_data['js_files'].append(js_url)
+                try:
+                    js_res = requests.get(js_url, headers=headers, timeout=5)
+                    js_keys = find_keys_in_text(js_res.text)
+                    if js_keys.get('pk'): found_data['pk'] = js_keys['pk']
+                    if js_keys.get('cs'): found_data['cs'] = js_keys['cs']
+                except: continue
+                
+        return jsonify(found_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# واجهة المستخدم (HTML UI)
+HTML_UI = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX ELITE GATE v10</title>
+    <title>Stripe Key Scanner | LYNIX</title>
     <style>
-        body { background: #050505; color: #00ff41; font-family: monospace; text-align: center; padding: 50px; }
-        .gate-box { border: 2px solid #00ff41; padding: 30px; display: inline-block; border-radius: 10px; box-shadow: 0 0 20px #00ff41; }
-        input, button { background: #000; color: #00ff41; border: 1px solid #00ff41; padding: 10px; margin: 10px; font-weight: bold; }
-        button { cursor: pointer; transition: 0.3s; background: #00ff41; color: #000; }
-        button:hover { background: #fff; color: #000; }
-        .status { margin-top: 20px; font-size: 1.2rem; }
+        body { background: #050505; color: #00ff41; font-family: monospace; padding: 20px; }
+        .box { border: 1px solid #00ff41; padding: 20px; max-width: 700px; margin: auto; box-shadow: 0 0 15px #00ff41; }
+        input { width: 80%; padding: 10px; background: #000; border: 1px solid #00ff41; color: #fff; }
+        button { padding: 10px 20px; background: #00ff41; color: #000; border: none; cursor: pointer; font-weight: bold; }
+        .result { margin-top: 20px; padding: 10px; border-top: 1px solid #333; }
+        .key-found { color: #fff; background: #222; padding: 5px; margin: 5px 0; display: block; }
     </style>
 </head>
 <body>
-    <div class="gate-box">
-        <h1>🛡️ LYNIX PRIVATE GATE</h1>
-        <p>أدخل بيانات البطاقة لفتح بوابة دفع رسمية مخصصة لها</p>
-        <input type="text" id="card_data" placeholder="CARD|MM|YY|CVV" style="width: 300px;">
-        <br>
-        <button onclick="createGate()">إنشاء بوابة دفع (Charge Gate) 🚀</button>
-        <div id="res" class="status"></div>
+    <div class="box">
+        <h2>🔍 STRIPE KEY SCANNER (PRO)</h2>
+        <p>أدخل رابط الموقع لتحليله واستخراج المفاتيح:</p>
+        <input type="text" id="targetUrl" placeholder="https://example.com/checkout">
+        <button onclick="startScan()">إبدأ الفحص</button>
+        <div id="results" class="result"></div>
     </div>
 
     <script>
-        async function createGate() {
-            const data = document.getElementById('card_data').value;
-            const resDiv = document.getElementById('res');
-            resDiv.innerHTML = "⏳ جاري تهيئة البوابة...";
+        async function startScan() {
+            const url = document.getElementById('targetUrl').value;
+            const resDiv = document.getElementById('results');
+            resDiv.innerHTML = "⏳ جاري تحليل الموقع وملفات الـ JS...";
             
-            try {
-                const response = await fetch('/generate-gate', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ card: data })
-                });
-                const result = await response.json();
-                if(result.url) {
-                    resDiv.innerHTML = `<a href="${result.url}" target="_blank" style="color:white; text-decoration:none;">✅ تم تجهيز البوابة! اضغط هنا للفحص</a>`;
-                    window.open(result.url, '_blank');
-                } else {
-                    resDiv.innerHTML = "❌ خطأ في المفتاح أو الحساب";
-                }
-            } catch (e) {
-                resDiv.innerHTML = "⚠️ خطأ في الاتصال";
+            const response = await fetch('/scan', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ url: url })
+            });
+            const data = await response.json();
+            
+            if(data.error) {
+                resDiv.innerHTML = "❌ خطأ: " + data.error;
+            } else {
+                resDiv.innerHTML = `
+                    <p>النتائج المستخرجة:</p>
+                    <span class="key-found">PK_LIVE: ${data.pk}</span>
+                    <span class="key-found">CLIENT_SECRET: ${data.cs}</span>
+                    <p style="font-size:0.8rem">تم فحص ${data.js_files.length} ملفات JS.</p>
+                `;
             }
         }
     </script>
@@ -60,31 +107,5 @@ HTML_GATE = """
 </html>
 """
 
-@app.route('/')
-def home():
-    return render_template_string(HTML_GATE)
-
-@app.route('/generate-gate', methods=['POST'])
-def generate_gate():
-    try:
-        # إنشاء جلسة دفع رسمية بمبلغ محدد (مثلاً 15 دولار كما نجحت معك)
-        session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=[{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {'name': 'Digital Product Access'},
-                    'unit_amount': 1499, # 14.99 USD
-                },
-                'quantity': 1,
-            }],
-            mode='payment',
-            success_url='https://example.com/success',
-            cancel_url='https://example.com/cancel',
-        )
-        return jsonify({"url": session.url})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
+    app.run(host='0.0.0.0', port=10000)
