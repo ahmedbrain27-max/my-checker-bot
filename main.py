@@ -1,52 +1,44 @@
-import asyncio
+import requests
 import re
-import os
+import json
 from flask import Flask, request, jsonify, render_template_string
-from playwright.async_api import async_playwright
 
 app = Flask(__name__)
 
-# --- واجهة المستخدم الاحترافية (Dark Pro UI) ---
+# واجهة مستخدم احترافية وسريعة
 HTML_INTERFACE = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <title>LYNIX PRO ULTRA | V15</title>
+    <title>LYNIX FAST SNIPER V17</title>
     <style>
-        body { background: #000; color: #00ff41; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; text-align: center; }
-        .container { max-width: 850px; margin: auto; border: 1px solid #00ff41; padding: 30px; box-shadow: 0 0 40px #00ff41; background: #050505; border-radius: 12px; }
-        h1 { letter-spacing: 5px; text-shadow: 0 0 10px #00ff41; margin-bottom: 30px; }
-        input { width: 90%; padding: 18px; background: #111; border: 1px solid #00ff41; color: #fff; margin-bottom: 20px; font-size: 1.1rem; border-radius: 5px; outline: none; }
-        button { width: 100%; padding: 18px; background: #00ff41; color: #000; font-weight: bold; cursor: pointer; font-size: 1.3rem; border-radius: 5px; transition: 0.3s; border: none; }
-        button:hover { background: #fff; box-shadow: 0 0 20px #fff; }
-        .data-table { width: 100%; margin-top: 30px; border-collapse: collapse; background: #0a0a0a; border-radius: 8px; overflow: hidden; }
-        .data-table td { border: 1px solid #222; padding: 18px; text-align: right; }
-        .label { color: #888; width: 35%; font-weight: bold; }
-        .val { color: #fff; font-family: 'Courier New', monospace; word-break: break-all; }
+        body { background: #0a0a0a; color: #00ff41; font-family: monospace; padding: 20px; text-align: center; }
+        .container { max-width: 750px; margin: auto; border: 1px solid #00ff41; padding: 25px; box-shadow: 0 0 20px #00ff41; background: #000; border-radius: 10px; }
+        input { width: 90%; padding: 15px; background: #111; border: 1px solid #00ff41; color: #fff; margin-bottom: 20px; font-size: 1rem; }
+        button { width: 100%; padding: 15px; background: #00ff41; color: #000; font-weight: bold; cursor: pointer; border: none; font-size: 1.2rem; }
+        .res-table { width: 100%; margin-top: 25px; border-collapse: collapse; }
+        .res-table td { border: 1px solid #222; padding: 12px; text-align: right; }
+        .val { color: #fff; word-break: break-all; }
         .highlight { color: #00ff41; font-weight: bold; }
-        #status { margin-top: 20px; font-size: 1.1rem; color: #ffff00; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>[ LYNIX PRO ULTRA V15 ]</h1>
-        <p>نظام القنص العميق المعتمد على المحرك الذهبي (Headless Engine)</p>
-        <input type="text" id="targetUrl" placeholder="الصق رابط cs_live أو صفحة الدفع هنا...">
-        <button onclick="startScraping()">إطلاق القنص العميق ⚡</button>
-        <div id="status"></div>
+        <h1>[ LYNIX FAST SNIPER V17 ]</h1>
+        <p>نظام القنص البرمجي المباشر (بدون متصفح)</p>
+        <input type="text" id="url" placeholder="الصق رابط cs_live هنا...">
+        <button onclick="fastScan()">بدء القنص السريع ⚡</button>
+        <div id="status" style="margin-top:15px; color: yellow;"></div>
         <div id="output"></div>
     </div>
-
     <script>
-        async function startScraping() {
-            const url = document.getElementById('targetUrl').value;
+        async function fastScan() {
+            const url = document.getElementById('url').value;
             const status = document.getElementById('status');
             const output = document.getElementById('output');
             
-            if(!url) return alert("يرجى وضع الرابط أولاً!");
-
-            status.innerHTML = "⏳ جاري تشغيل المتصفح الخفي وانتزاع البيانات من السيرفر...";
+            status.innerHTML = "⏳ جاري اعتراض بيانات Stripe مباشرة...";
             output.innerHTML = "";
             
             try {
@@ -57,83 +49,23 @@ HTML_INTERFACE = """
                 });
                 const data = await response.json();
                 
-                if (data.status === "Success") {
+                if(data.status === "Success") {
                     status.innerHTML = "✅ تم القنص بنجاح!";
-                    let html = `<table class="data-table">
-                        <tr><td class="label">المتجر (Merchant)</td><td class="val highlight">${data.merchant}</td></tr>
-                        <tr><td class="label">المبلغ (Amount)</td><td class="val" style="color:#0f0; font-size:1.4rem;">${data.amount}</td></tr>
-                        <tr><td class="label">المفتاح (PK Live)</td><td class="val" style="color:yellow;">${data.pk}</td></tr>
-                        <tr><td class="label">Session ID</td><td class="val">${data.session_id}</td></tr>
+                    output.innerHTML = `<table class="res-table">
+                        <tr><td>المتجر (Merchant)</td><td class="val highlight">${data.merchant}</td></tr>
+                        <tr><td>المبلغ (Amount)</td><td class="val highlight" style="color:#0f0;">${data.amount} ${data.currency}</td></tr>
+                        <tr><td>الـ PK (Live)</td><td class="val" style="color:yellow;">${data.pk}</td></tr>
+                        <tr><td>ID الجلسة</td><td class="val">${data.session_id}</td></tr>
                     </table>`;
-                    output.innerHTML = html;
                 } else {
-                    status.innerHTML = "❌ خطأ في النظام: " + data.message;
+                    status.innerHTML = "❌ خطأ: " + data.message;
                 }
-            } catch (e) {
-                status.innerHTML = "❌ فشل الاتصال بسيرفر Render.";
-            }
+            } catch(e) { status.innerHTML = "❌ فشل الاتصال."; }
         }
     </script>
 </body>
 </html>
 """
-
-async def run_pro_scanner(url):
-    async with async_playwright() as p:
-        # إعدادات قوية لمحاكاة متصفح حقيقي وتجاوز الحماية
-        browser = await p.chromium.launch(
-            headless=True,
-            args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-        )
-        page = await context.new_page()
-        
-        try:
-            # الدخول للموقع مع مهلة انتظار طويلة (60 ثانية) للروابط الثقيلة
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-            await page.wait_for_timeout(5000) # انتظار إضافي لتأكيد تحميل الـ UI
-
-            # 1. استخراج محتوى الصفحة الكامل
-            content = await page.content()
-            
-            # 2. اصطياد الـ PK باستخدام Regex متقدم
-            pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', content)
-            pk = pk_match.group(0) if pk_match else "لم يتم العثور عليه"
-
-            # 3. اصطياد اسم المتجر والمبلغ من واجهة المستخدم (DOM)
-            merchant = await page.title()
-            merchant = merchant.replace("Pay ", "").split('|')[0].strip()
-            
-            amount = "Unknown"
-            # قائمة العناصر التي يضع فيها Stripe المبالغ عادةً
-            selectors = [
-                '.Checkout-Status-Amount', 
-                'span[data-test="payment-amount"]', 
-                '.total-amount', 
-                'div[aria-label*="Amount"]',
-                'span:has-text("$")'
-            ]
-            
-            for s in selectors:
-                try:
-                    el = await page.query_selector(s)
-                    if el:
-                        amount = await el.inner_text()
-                        if "$" in amount or "€" in amount or "£" in amount:
-                            break
-                except: continue
-
-            # 4. استخراج الـ Session ID من الرابط الأصلي
-            sid_match = re.search(r'cs_live_[a-zA-Z0-9]{30,}', url)
-            sid = sid_match.group(0) if sid_match else "N/A"
-
-            await browser.close()
-            return {"merchant": merchant, "amount": amount, "pk": pk, "session_id": sid}
-        except Exception as e:
-            await browser.close()
-            return {"error": str(e)}
 
 @app.route('/')
 def index():
@@ -141,20 +73,55 @@ def index():
 
 @app.route('/scan', methods=['POST'])
 def scan():
-    url = request.json.get('url')
-    if not url: return jsonify({"status": "Error", "message": "URL missing"})
-    
+    target_url = request.json.get('url')
+    # محاكاة متصفح موبايل لتجنب الحظر وجلب البيانات المخفية
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9'
+    }
+
     try:
-        import asyncio
-        # تشغيل المحرك في حلقة حدث جديدة لضمان الاستقرار على Render
-        result = asyncio.run(run_pro_scanner(url))
-        if "error" in result:
-            return jsonify({"status": "Error", "message": result["error"]})
-        return jsonify({**result, "status": "Success"})
+        # تتبع الرابط وسحب محتواه بالكامل
+        session = requests.Session()
+        res = session.get(target_url, headers=headers, timeout=15, allow_redirects=True)
+        
+        # 1. استخراج الـ PK باستخدام بحث ذكي
+        pk = "Not Found"
+        pk_match = re.search(r'pk_live_[a-zA-Z0-9]{24,}', res.text)
+        if pk_match: pk = pk_match.group(0)
+
+        # 2. استخراج المبلغ والعملة من بيانات الـ JSON المدمجة في الصفحة
+        amount = "--"
+        currency = "USD"
+        # Stripe يضع البيانات المالية غالباً في سطر JSON يبدأ بـ total أو amount
+        money_match = re.search(r'\"amount\":(\d+),\"currency\":\"([a-z]{3})\"', res.text)
+        if not money_match:
+            money_match = re.search(r'\"total\":(\d+),\"currency\":\"([a-z]{3})\"', res.text)
+            
+        if money_match:
+            amount = f"{int(money_match.group(1)) / 100:.2f}"
+            currency = money_match.group(2).upper()
+
+        # 3. استخراج اسم المتجر من عنوان الصفحة
+        merchant = "Unknown Merchant"
+        title = re.search(r'<title>(.*?)</title>', res.text)
+        if title:
+            merchant = title.group(1).replace("Pay ", "").split('|')[0].strip()
+
+        # 4. معرف الجلسة من الرابط
+        sid = re.search(r'cs_live_[a-zA-Z0-9]{30,}', target_url)
+
+        return jsonify({
+            "status": "Success",
+            "pk": pk,
+            "amount": amount,
+            "currency": currency,
+            "merchant": merchant,
+            "session_id": sid.group(0) if sid else "N/A"
+        })
     except Exception as e:
         return jsonify({"status": "Error", "message": str(e)})
 
 if __name__ == "__main__":
-    # تشغيل السيرفر على المنفذ الافتراضي لـ Render
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=10000)
